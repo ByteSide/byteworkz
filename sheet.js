@@ -1173,6 +1173,49 @@ function renameSheet(idx, newName) {
     return true;
 }
 
+// Apply rowOp/colOp to every chart anchored to a single ref ("A1"). Charts
+// whose endpoints land out of bounds (op returns null) are dropped. Mirrors
+// the formula-ref shift logic but for chart.range.{start,end} strings.
+// Returns true if the chart should survive, false if it should be removed.
+function shiftChartRange(chart, rowOp, colOp) {
+    const shiftOne = (refStr) => {
+        const [c, r] = splitRef(refStr);
+        const cn = colToNum(c);
+        const newCn = colOp ? colOp(cn) : cn;
+        const newR  = rowOp ? rowOp(r)  : r;
+        if (newCn === null || newR === null) return null;
+        return numToCol(newCn) + newR;
+    };
+    const newStart = shiftOne(chart.range.start);
+    const newEnd = shiftOne(chart.range.end);
+    if (newStart === null || newEnd === null) return false;  // broken — drop
+    chart.range.start = newStart;
+    chart.range.end = newEnd;
+    return true;
+}
+
+// Apply chart-range shifts to every chart referencing the modified sheet,
+// and update the filter column if present.
+function shiftChartsAndFilter({ rowOp, colOp, modifiedSheetIdx }) {
+    state.doc.sheets.forEach(sh => {
+        if (!sh.charts || !sh.charts.length) return;
+        sh.charts = sh.charts.filter(ch => {
+            if (ch.range.sheet !== modifiedSheetIdx) return true;  // unrelated sheet
+            return shiftChartRange(ch, rowOp, colOp);
+        });
+    });
+    // Filter.col tracks column letter — only colOp affects it.
+    if (colOp) {
+        const sh = state.doc.sheets[modifiedSheetIdx];
+        if (sh.filter) {
+            const fcn = colToNum(sh.filter.col);
+            const newFcn = colOp(fcn);
+            if (newFcn === null) delete sh.filter;
+            else sh.filter.col = numToCol(newFcn);
+        }
+    }
+}
+
 function shiftAllFormulaRefs({ rowOp, colOp, modifiedSheetIdx, force = false, skipRanges = false }) {
     const modifiedSheetName = state.doc.sheets[modifiedSheetIdx].name;
     const opts = { force };
@@ -1213,11 +1256,13 @@ function insertRowAtActive() {
     moves.sort((a, b) => splitRef(b.from)[1] - splitRef(a.from)[1]);
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
     // shift formula refs (Excel-style: non-absolute rows at or below r move with the data)
+    const rowOp = (row) => row >= r ? row + 1 : row;
     shiftAllFormulaRefs({
-        rowOp: (row) => row >= r ? row + 1 : row,
+        rowOp,
         colOp: null,
         modifiedSheetIdx: state.doc.activeSheet
     });
+    shiftChartsAndFilter({ rowOp, colOp: null, modifiedSheetIdx: state.doc.activeSheet });
     fullRecompute();
     renderGrid();
     markDirty();
@@ -1235,11 +1280,13 @@ function insertColAtActive() {
     });
     moves.sort((a, b) => colToNum(splitRef(b.from)[0]) - colToNum(splitRef(a.from)[0]));
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
+    const colOp = (colNum) => colNum >= cn ? colNum + 1 : colNum;
     shiftAllFormulaRefs({
         rowOp: null,
-        colOp: (colNum) => colNum >= cn ? colNum + 1 : colNum,
+        colOp,
         modifiedSheetIdx: state.doc.activeSheet
     });
+    shiftChartsAndFilter({ rowOp: null, colOp, modifiedSheetIdx: state.doc.activeSheet });
     fullRecompute();
     renderGrid();
     markDirty();
@@ -1261,11 +1308,13 @@ function deleteActiveRow() {
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
     sh.rows -= 1;
     // refs pointing AT row r become #REF!; refs > r shift down by 1
+    const rowOp = (row) => row === r ? null : (row > r ? row - 1 : row);
     shiftAllFormulaRefs({
-        rowOp: (row) => row === r ? null : (row > r ? row - 1 : row),
+        rowOp,
         colOp: null,
         modifiedSheetIdx: state.doc.activeSheet
     });
+    shiftChartsAndFilter({ rowOp, colOp: null, modifiedSheetIdx: state.doc.activeSheet });
     fullRecompute();
     renderGrid();
     markDirty();
@@ -1287,11 +1336,13 @@ function deleteActiveCol() {
     moves.sort((a, b) => colToNum(splitRef(a.from)[0]) - colToNum(splitRef(b.from)[0]));
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
     sh.cols -= 1;
+    const colOp = (colNum) => colNum === cn ? null : (colNum > cn ? colNum - 1 : colNum);
     shiftAllFormulaRefs({
         rowOp: null,
-        colOp: (colNum) => colNum === cn ? null : (colNum > cn ? colNum - 1 : colNum),
+        colOp,
         modifiedSheetIdx: state.doc.activeSheet
     });
+    shiftChartsAndFilter({ rowOp: null, colOp, modifiedSheetIdx: state.doc.activeSheet });
     fullRecompute();
     renderGrid();
     markDirty();
@@ -1449,6 +1500,25 @@ function renderSheetTabs() {
                 { label: 'Duplicate', onClick: () => {
                     const copy = JSON.parse(JSON.stringify(s));
                     copy.name = s.name + ' (copy)';
+                    // Chart.range.sheet stores a sheet INDEX (not name). After
+                    // splice(idx+1, 0, copy), every sheet at original position
+                    // >= idx+1 shifts up by 1. Walk all existing charts and
+                    // re-index. Then for the copy's own charts: self-refs
+                    // (originally pointing at idx) should re-target to idx+1
+                    // (the copy's new position), so the duplicate's charts
+                    // render the duplicate's data — that's what Excel does.
+                    state.doc.sheets.forEach(other => {
+                        if (!other.charts) return;
+                        other.charts.forEach(ch => {
+                            if (ch.range.sheet >= idx + 1) ch.range.sheet += 1;
+                        });
+                    });
+                    if (copy.charts) {
+                        copy.charts.forEach(ch => {
+                            if (ch.range.sheet === idx) ch.range.sheet = idx + 1;
+                            else if (ch.range.sheet > idx) ch.range.sheet += 1;
+                        });
+                    }
                     state.doc.sheets.splice(idx + 1, 0, copy);
                     renderSheetTabs();
                     markDirty();
@@ -1458,6 +1528,22 @@ function renderSheetTabs() {
                     if (state.doc.sheets.length <= 1) { toast('Cannot delete last sheet.', { kind: 'error' }); return; }
                     const ok = await confirm({ title: 'Delete sheet', message: `Delete "${s.name}"?`, danger: true, okLabel: 'Delete' });
                     if (!ok) return;
+                    // Chart.range.sheet is an INDEX. After splice(idx, 1),
+                    // sheets at original position > idx shift down by 1, and
+                    // any chart that referenced the deleted sheet itself
+                    // (range.sheet === idx) is now dangling and must be
+                    // dropped. Without this fix, deleting Sheet2 in a
+                    // 3-sheet doc silently re-pointed every "Sheet3-chart"
+                    // reference to whatever now sat at index 2.
+                    state.doc.sheets.forEach((other, otherIdx) => {
+                        if (otherIdx === idx) return;  // about to be deleted
+                        if (!other.charts) return;
+                        other.charts = other.charts.filter(ch => {
+                            if (ch.range.sheet === idx) return false;       // dangling
+                            if (ch.range.sheet > idx)  ch.range.sheet -= 1; // shift down
+                            return true;
+                        });
+                    });
                     state.doc.sheets.splice(idx, 1);
                     state.doc.activeSheet = Math.max(0, Math.min(state.doc.activeSheet, state.doc.sheets.length - 1));
                     fullRecompute();

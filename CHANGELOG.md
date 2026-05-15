@@ -4,6 +4,28 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] — 2026-05-15 — "audit pass 3 — structural-edit integrity"
+
+Third deep audit pass turned up five real correctness bugs in
+byteSheet's structural-edit story. These weren't user-reported — they
+just lurk until somebody inserts a row above a chart or deletes the
+sheet a chart depends on. Fixed all five plus one cosmetic tweak.
+
+### Fixed (WICHTIG)
+
+- **Chart range refs didn't track row/col insert + delete.** Inserting a row above a chart's range left the chart pointing at the *old* row numbers — so it silently rendered the row above + missed the row below. Same for columns. Now `insertRowAtActive` / `insertColAtActive` / `deleteActiveRow` / `deleteActiveCol` all shift every affected chart's `range.start` and `range.end` via a new `shiftChartRange` helper that mirrors the formula-ref shift logic. Out-of-bounds endpoints drop the chart entirely (matches Excel — a chart whose data was deleted is broken, not silently misleading).
+- **Filter column didn't track col insert + delete.** A filter on column C survived a "delete column C" with `sh.filter.col = "C"` still set — but column C now held the data from former column D, so the filter applied yesterday's allow-set against today's data. Now col-shift updates `filter.col`; if the filtered column itself was deleted, the filter is cleared.
+- **Sheet delete left dangling chart references.** `chart.range.sheet` is an index (not a name) — deleting Sheet2 in a 3-sheet doc didn't touch any of the charts; charts in Sheet1 that referenced Sheet3 (index 2) now silently re-pointed at whatever sat at index 2 after the splice (the former Sheet3). Now every other sheet's charts are walked: charts referencing the deleted sheet are dropped, charts referencing later sheets shift down by 1.
+- **Sheet duplicate left charts pointing at the original.** `JSON.parse(JSON.stringify(s))` deep-copied the charts but their `range.sheet` still indexed the original. The duplicate's charts rendered the original's data, ignoring any edits to the duplicate. Plus other sheets' charts referencing sheets after the insertion point silently shifted to the wrong sheet. Now both classes are fixed: copy's self-refs re-target to `idx+1`, and existing charts referencing `>= idx+1` shift up.
+
+### Fixed (cosmetic)
+
+- **Active cell inset glow reduced** from `inset 0 0 12px` to `inset 0 0 6px`. On 24px-tall cells the 12px shadow covered half the vertical space and read as "the whole cell is on fire" rather than "this is the focused cell". Same reduction in the cell-editor.
+
+### Tests
+
+- 107/107 unchanged. The new code paths aren't currently covered by tests — they require a full sheet doc + DOM. Manual smoke-test scenarios in the CHANGELOG.
+
 ## [0.3.1] — 2026-05-15 — "app interior polish"
 
 The 0.3.0 polish landed mostly on the hub. This one targets the actual

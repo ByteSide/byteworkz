@@ -121,7 +121,10 @@
     outline: 2px solid var(--accent);
     outline-offset: -2px;
     z-index: 1;
-    box-shadow: inset 0 0 12px var(--accent-dim);
+    /* Subtle inner glow — 6px was 12px previously. On 24px-tall cells the
+     * 12px shadow covered half the vertical space and read as "the whole
+     * cell is on fire" rather than a focus indicator. */
+    box-shadow: inset 0 0 6px var(--accent-dim);
 }
 /* Accent-coloured selection inside a cell-editor — overrides the browser
  * default blue. Matches the rest of the orange accent system. */
@@ -153,7 +156,7 @@
     outline: 2px solid var(--accent);
     outline-offset: -2px;
     box-sizing: border-box;
-    box-shadow: inset 0 0 12px var(--accent-glow);
+    box-shadow: inset 0 0 6px var(--accent-glow);
 }
 
 /* Sheet tabs bar at bottom */
