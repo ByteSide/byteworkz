@@ -114,6 +114,13 @@ export function confirm({ title = 'Confirm', message, danger = false, okLabel = 
 }
 
 /* showContextMenu(x, y, items:[{label, onClick, sep?}]) */
+// Module-private — we track the active outside-click handler so closeContextMenu
+// can remove it. Without this, rapid open of two menus left the stale {once:true}
+// listener from the first menu attached; on the next click anywhere, it fired,
+// saw its (gone) menu didn't contain the target, and called closeContextMenu —
+// which closed the SECOND menu unexpectedly.
+let _ctxOutsideHandler = null;
+
 export function showContextMenu(x, y, items) {
     closeContextMenu();
     const menu = document.createElement('div');
@@ -135,21 +142,33 @@ export function showContextMenu(x, y, items) {
         menu.appendChild(b);
     });
     document.body.appendChild(menu);
-    // Clamp to viewport
+    // Clamp to viewport (also guard left/top from negative — a tiny viewport or
+    // huge menu would otherwise render the menu off-screen left).
     const rect = menu.getBoundingClientRect();
-    const px = Math.min(x, window.innerWidth - rect.width - 4);
-    const py = Math.min(y, window.innerHeight - rect.height - 4);
+    const px = Math.max(2, Math.min(x, window.innerWidth - rect.width - 4));
+    const py = Math.max(2, Math.min(y, window.innerHeight - rect.height - 4));
     menu.style.left = px + 'px';
     menu.style.top = py + 'px';
 
     const onDocClick = (e) => {
         if (!menu.contains(e.target)) closeContextMenu();
     };
-    setTimeout(() => document.addEventListener('mousedown', onDocClick, { once: true }), 0);
+    _ctxOutsideHandler = onDocClick;
+    setTimeout(() => {
+        // If we got pre-empted by another open/close before this timeout fired,
+        // _ctxOutsideHandler points at a different function — don't attach.
+        if (_ctxOutsideHandler === onDocClick) {
+            document.addEventListener('mousedown', onDocClick);
+        }
+    }, 0);
 }
 export function closeContextMenu() {
     const old = document.getElementById('byteworkz-ctx-menu');
     if (old) old.remove();
+    if (_ctxOutsideHandler) {
+        document.removeEventListener('mousedown', _ctxOutsideHandler);
+        _ctxOutsideHandler = null;
+    }
 }
 
 /* tiny escapers */

@@ -4,6 +4,20 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] — 2026-05-15 — "audit pass"
+
+Systematic codebase scan ([/byteside:debug-web-loop]) turned up one security
+issue and one rare UI bug.
+
+### Security (KRITISCH)
+
+- **XSS hardening in byteDoc** — a hand-crafted `.bytedoc.json` (or a directly tampered localStorage entry) could previously inject scripts via attributes the old blacklist didn't cover: `onmouseover`, `onfocus`, `onpointerdown`, `formaction`, `srcdoc`, and many others. The sanitizer is now **whitelist-based**: per-tag enumeration of allowed attributes (`A` → `href`/`target`/`rel`, `IMG` → `src`/`alt`/`width`/`height`, everything else → zero attrs). Plus `href` must match `https?:|mailto:|tel:|ftp:|#|/|.` and `src` must match `data:image/...|https?:` — `javascript:`, `data:text/html`, `vbscript:` all get stripped.
+- **Sanitize on load, not just on paste** — `setActive()` now runs `sanitizeHTML()` on the doc body before assigning to `editor.innerHTML`. Without this, malicious html persisted from any source (file open, dev-tools tamper, pre-0.2.3 entries) would re-execute on every mount. Self-healing: the next debounced save writes the cleaned html back to localStorage.
+
+### Fixed (MINOR)
+
+- **Context menu spurious close** (`ui.js`) — opening two context menus in rapid succession left the first menu's `{once: true}` outside-click listener stale-attached. The next click anywhere triggered it, found its (gone) menu didn't contain the target, and called `closeContextMenu()` — closing the *second* menu. The handler is now tracked explicitly and removed in `closeContextMenu()`. Side benefit: also clamps menu position to `Math.max(2, …)` so a small viewport / large menu doesn't render off-screen left.
+
 ## [0.2.2] — 2026-05-15 — "byteDoc focus"
 
 byteDoc hadn't had a focused release in seven versions; this one is.

@@ -34,7 +34,22 @@ const APP_MIME = 'bytedoc';
 const APP_VERSION = 1;
 
 const SAFE_PASTE_TAGS = new Set(['P','DIV','BR','B','STRONG','I','EM','U','S','STRIKE','H1','H2','H3','H4','UL','OL','LI','A','BLOCKQUOTE','TABLE','THEAD','TBODY','TR','TD','TH','SPAN','IMG']);
-const STRIP_ATTRS = ['style','class','id','onclick','onload','onerror'];
+// Whitelist of attributes per tag. Everything else is stripped. The previous
+// blacklist (style/class/id/onclick/onload/onerror) missed onmouseover,
+// onfocus, onpointerdown, formaction, srcdoc, etc. — a hand-crafted
+// .bytedoc.json with `<p onmouseover=...>` would XSS on load. Whitelist
+// makes the attack surface enumerable.
+const ATTR_WHITELIST = {
+    A:   ['href', 'target', 'rel'],
+    IMG: ['src', 'alt', 'width', 'height']
+    // Everything else: zero attrs allowed.
+};
+// href schemes considered safe to keep on <a>. javascript:, data:, vbscript:
+// all get stripped.
+const SAFE_URL_RE = /^(https?:|mailto:|tel:|ftp:|#|\/|\.)/i;
+// src schemes for <img>. data:image/* permits inline images (our paste flow
+// stores images this way). data:text/html or anything else gets stripped.
+const SAFE_IMG_RE = /^(data:image\/(png|jpe?g|gif|webp|svg\+xml|bmp);|https?:)/i;
 
 // Undo/redo: per-tab linear history. Each entry is {html, sel}; the cursor
 // indexes the "current" state. Branching is destroyed on the next commit
@@ -498,7 +513,11 @@ function setActive(id) {
     state.activeId = id;
     const d = active();
     if (!d) return;
-    if (state.editor) state.editor.innerHTML = d.html || '<p><br></p>';
+    // Sanitize on load too — not just on paste. A hand-crafted .bytedoc.json
+    // (or a localStorage entry tampered with via DevTools, or an older doc
+    // saved before sanitization was tightened) could otherwise XSS via
+    // onmouseover/onpointerdown/img-onerror on the next mount.
+    if (state.editor) state.editor.innerHTML = sanitizeHTML(d.html || '<p><br></p>') || '<p><br></p>';
     if (state.titleInput) state.titleInput.value = d.title || '';
     setIndicator('idle');
     renderTabs();
@@ -568,27 +587,40 @@ function onPaste(e) {
 }
 
 function sanitizeHTML(html) {
+    if (!html) return '';
     const tmp = document.createElement('div');
-    tmp.innerHTML = html;
+    tmp.innerHTML = String(html);
     scrub(tmp);
     return tmp.innerHTML;
 }
+function scrubAttrs(el) {
+    const allowed = ATTR_WHITELIST[el.tagName] || [];
+    // Walk attrs in reverse — removeAttribute mutates the live NamedNodeMap.
+    for (let i = el.attributes.length - 1; i >= 0; i--) {
+        const a = el.attributes[i];
+        if (!allowed.includes(a.name.toLowerCase())) {
+            el.removeAttribute(a.name);
+        }
+    }
+    if (el.tagName === 'A') {
+        const href = el.getAttribute('href') || '';
+        if (!SAFE_URL_RE.test(href)) {
+            el.removeAttribute('href');
+        } else {
+            el.setAttribute('target', '_blank');
+            el.setAttribute('rel', 'noopener noreferrer');
+        }
+    } else if (el.tagName === 'IMG') {
+        const src = el.getAttribute('src') || '';
+        if (!SAFE_IMG_RE.test(src)) el.removeAttribute('src');
+    }
+}
 function scrub(node) {
-    // Walk children; strip unknown tags by replacing with their text
     Array.from(node.children).forEach(child => {
         if (!SAFE_PASTE_TAGS.has(child.tagName)) {
-            // Replace with text content
-            const t = document.createTextNode(child.textContent || '');
-            child.replaceWith(t);
+            child.replaceWith(document.createTextNode(child.textContent || ''));
         } else {
-            // Strip dangerous/style attrs
-            STRIP_ATTRS.forEach(a => child.removeAttribute(a));
-            // Keep href for A only
-            if (child.tagName !== 'A') child.removeAttribute('href');
-            else {
-                const href = child.getAttribute('href') || '';
-                if (/^(javascript|data):/i.test(href)) child.removeAttribute('href');
-            }
+            scrubAttrs(child);
             scrub(child);
         }
     });

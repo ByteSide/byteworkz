@@ -1,6 +1,6 @@
 {
-  "version": "0.2.2",
+  "version": "0.2.3",
   "date": "2026-05-15",
-  "build": "doc-undo",
+  "build": "xss-hardening",
   "apps": ["byteDoc", "byteSheet"]
 }
