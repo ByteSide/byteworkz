@@ -4,6 +4,24 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.7] — 2026-05-15
+
+### Added (formula-engine foundation for v0.2 "spreadsheet feature parity")
+
+- **Tokenizer emits source-position info** (`token.loc = {start, end}`) for every token, enabling lossless re-serialisation of formulas.
+- **REF / RANGE tokens preserve `$` absolute-marker positions** in new `colAbs` / `rowAbs` flags (and `startCell` / `endCell` for RANGE). The existing `ref` / `start` / `end` fields stay populated as before, so the evaluator is unchanged.
+- **Quoted sheet names**: formulas like `='Q1 Sales'!A1` or `=SUM('My Sheet'!$A$1:$B$5)` now parse. Excel-style `''` escape for a literal `'` is supported.
+- **`rewriteFormula(formula, transform)`** — walks every REF / RANGE token, lets the transform replace its source slice, keeps everything else byte-identical. The foundation for upcoming row/column/sort-aware ref shifting and sheet-rename ref updates.
+- **`refToString(parts)` / `rangeToString(start, end, sheet)`** helpers serialise parsed refs back to formula text with correct `$` markers + quoting.
+
+### Fixed
+
+- Tokenizer had a latent infinite-loop trap on input shaped `foo!nonref` — backed up to `i = j - 1` and re-tokenised the same word. Changed to `i = j`, which leaves `!` for the next iteration to error on cleanly.
+
+### Tests
+
+- Formula suite grew from 34 to 55 cases. New: absolute refs (`$A$1` etc.), quoted sheet names, round-trip identity for 13 representative formulas, `refToString` shape, and an end-to-end shift-row demonstration of the rewrite hook.
+
 ## [0.1.6] — 2026-05-15
 
 ### Fixed

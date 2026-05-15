@@ -7,7 +7,7 @@
 //
 // Exits 0 on all-green, 1 on any failure. Add cases to the `cases` array.
 
-import { evaluate, colToNum, numToCol, splitRef } from '../sheet-formula.js';
+import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, refToString, rangeToString } from '../sheet-formula.js';
 
 const data = [
     // Sheet 0
@@ -87,7 +87,11 @@ const cases = [
     ['$A$1+1', 11],
     ['$A1+1', 11],
     ['A$1+1', 11],
-    ['SUM($A$1:$A$3)', 60]
+    ['SUM($A$1:$A$3)', 60],
+
+    // quoted sheet names
+    ["'Other'!A1", 100],
+    ["SUM('Other'!A1:A2)", 300]
 ];
 
 let pass = 0, fail = 0;
@@ -100,5 +104,63 @@ for (const [f, expected] of cases) {
     if (ok) { pass++; }
     else { fail++; console.log(`FAIL: ${f}  →  got ${JSON.stringify(v)}  expected ${JSON.stringify(expected)}`); }
 }
+
+// ── Round-trip tests: rewriteFormula with identity transform must be lossless ──
+// (whitespace inside operands is dropped by tokenizer + slice; the test inputs
+//  below are already in canonical form so identity is byte-equal)
+const roundtripCases = [
+    'A1+B2',
+    '$A$1+1',
+    'A$1+1',
+    '$A1+1',
+    'SUM(A1:A10)',
+    'SUM($A$1:$B$5)',
+    'IF(A1>5, "yes", "no")',
+    "'Q1 Sales'!A1",
+    "SUM('My Sheet'!$A$1:$B$5)",
+    'Sheet2!A1+Sheet3!B2',
+    'CONCAT("hello ", "world")',
+    '-A1+ABS(B2)',
+    '50%+10'
+];
+for (const f of roundtripCases) {
+    const out = rewriteFormula(f, () => null);
+    if (out === f) { pass++; }
+    else { fail++; console.log(`ROUND-TRIP FAIL: ${JSON.stringify(f)}  →  got ${JSON.stringify(out)}`); }
+}
+
+// ── refToString / rangeToString helpers ──
+const refCases = [
+    [{ col: 'A', colAbs: false, row: 1, rowAbs: false }, 'A1'],
+    [{ col: 'A', colAbs: true,  row: 1, rowAbs: true  }, '$A$1'],
+    [{ col: 'AB', colAbs: false, row: 42, rowAbs: true }, 'AB$42'],
+    [{ col: 'A', colAbs: false, row: 1, rowAbs: false, sheet: 'Sheet1' }, 'Sheet1!A1'],
+    [{ col: 'A', colAbs: true,  row: 1, rowAbs: false, sheet: 'Q1 Sales' }, "'Q1 Sales'!$A1"]
+];
+for (const [parts, expected] of refCases) {
+    const out = refToString(parts);
+    if (out === expected) { pass++; }
+    else { fail++; console.log(`refToString FAIL: ${JSON.stringify(parts)} → got ${JSON.stringify(out)}, expected ${JSON.stringify(expected)}`); }
+}
+
+// ── transform: shift row by +1 demonstrates the rewrite hook end-to-end ──
+const shifted = rewriteFormula('A1+$B$2+SUM(A1:A5)', tk => {
+    if (tk.type === 'REF') {
+        if (tk.rowAbs) return null;
+        return refToString({ col: tk.col, colAbs: tk.colAbs, row: tk.row + 1, rowAbs: tk.rowAbs, sheet: tk.sheet });
+    }
+    if (tk.type === 'RANGE') {
+        const s = tk.startCell, e = tk.endCell;
+        return rangeToString(
+            { ...s, row: s.rowAbs ? s.row : s.row + 1 },
+            { ...e, row: e.rowAbs ? e.row : e.row + 1 },
+            tk.sheet
+        );
+    }
+    return null;
+});
+if (shifted === 'A2+$B$2+SUM(A2:A6)') { pass++; }
+else { fail++; console.log(`shift-row FAIL: got ${JSON.stringify(shifted)}, expected "A2+$B$2+SUM(A2:A6)"`); }
+
 console.log(`\n${pass}/${pass+fail} passed`);
 process.exit(fail === 0 ? 0 : 1);
