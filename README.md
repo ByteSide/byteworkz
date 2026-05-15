@@ -5,13 +5,13 @@ No accounts, no cloud, no tracking — everything lives in your browser.
 
 **Live:** [https://byteworkz.byteside.net](https://byteworkz.byteside.net)
 &nbsp;·&nbsp; **License:** [MIT](LICENSE)
-&nbsp;·&nbsp; **Status:** v0.1.2
+&nbsp;·&nbsp; **Versions:** see [CHANGELOG.md](CHANGELOG.md)
 
-It is a tiny vanilla-ES6 single-page app — about 4,300 lines of code across
-9 files, no build step, no backend, no dependencies. Designed as a companion
-to [bytepaint](https://github.com/ByteSide/bytepaint) and pre-wired for later
-embedding into the [byteside-voidcore](https://voidcore.byteside.net) OS-style
-shell.
+A tiny vanilla-ES6 single-page app — no build step, no backend, no
+dependencies. Designed as a companion to
+[bytepaint](https://github.com/ByteSide/bytepaint) and pre-wired for later
+embedding into the [byteside-voidcore](https://voidcore.byteside.net)
+OS-style shell.
 
 ---
 

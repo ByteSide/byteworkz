@@ -1,6 +1,6 @@
 {
-  "version": "0.1.5",
+  "version": "0.1.6",
   "date": "2026-05-15",
-  "build": "audit-fixes",
+  "build": "second-audit-fixes",
   "apps": ["byteDoc", "byteSheet"]
 }

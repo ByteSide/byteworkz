@@ -81,7 +81,13 @@ const cases = [
 
     // comparison
     ['A1=10', true],
-    ['A1<>10', false]
+    ['A1<>10', false],
+
+    // absolute refs ($ markers accepted, normalised to plain refs)
+    ['$A$1+1', 11],
+    ['$A1+1', 11],
+    ['A$1+1', 11],
+    ['SUM($A$1:$A$3)', 60]
 ];
 
 let pass = 0, fail = 0;

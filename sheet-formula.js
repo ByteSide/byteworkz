@@ -85,9 +85,13 @@ export function tokenize(text) {
         }
 
         // sheet-qualified ref or plain ref or function or boolean
-        if (/[A-Za-z_]/.test(c)) {
+        // `$` is also a valid leading/internal char so absolute refs like
+        // $A$1, A$1, $A1 tokenize correctly. The match patterns below strip
+        // the dollars via REF_RE / normalizeRef — byteworkz treats refs as
+        // logically relative; the $ markers are accepted but ignored.
+        if (/[A-Za-z_$]/.test(c)) {
             let j = i;
-            while (j < t.length && /[A-Za-z0-9_.]/.test(t[j])) j++;
+            while (j < t.length && /[A-Za-z0-9_.$]/.test(t[j])) j++;
             let word = t.slice(i, j);
             // sheet!ref ?
             if (t[j] === '!') {
@@ -118,8 +122,8 @@ export function tokenize(text) {
                 i = j - 1; // back up, leave '!'
                 continue;
             }
-            // bare ref like A1 or range A1:B5
-            const refMatch = word.match(/^([A-Za-z]{1,3})(\d{1,5})$/);
+            // bare ref like A1 or absolute $A$1 / A$1 / $A1 or range A1:B5
+            const refMatch = word.match(/^\$?([A-Za-z]{1,3})\$?(\d{1,5})$/);
             if (refMatch) {
                 let endJ = j;
                 let endRef = null;

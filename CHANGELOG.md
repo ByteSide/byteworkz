@@ -4,6 +4,17 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.6] — 2026-05-15
+
+### Fixed
+- **Absolute cell references (`$A$1`, `A$1`, `$A1`) were rejected by the formula tokenizer** even though the docstring at the top of `sheet-formula.js` claimed they were supported. `=$A$1+1` returned `#ERROR! unexpected char "$"`. Fix: extend the tokenizer's word-start and word-body character classes to accept `$`; the bare-ref pattern strips the dollars via `normalizeRef` (byteworkz treats refs as logically relative — `$` markers are accepted but ignored). Tests added: 34/34 pass now.
+
+### Changed
+- README no longer claims a specific LOC count or file count, and no longer pins a version inline. Both drift quickly; the source of truth is now `CHANGELOG.md` and the topbar version pill (fetched from `/version.json`).
+
+### Repo hygiene (out-of-changelog)
+- The internal pre-launch checklist (Caddy block, bind-mount path, repo references, in-session security note) was previously committed as `PUBLIC-RELEASE-PLAN.md`. That file has been replaced by a public-friendly `ROADMAP.md` and the sensitive content was purged from the entire git history via `git filter-branch` + `--force-with-lease` push. All commit SHAs prior to v0.1.6 changed as a result.
+
 ## [0.1.5] — 2026-05-15
 
 ### Fixed (P0 — data loss / leak risks surfaced by line-by-line audit)
