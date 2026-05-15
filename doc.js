@@ -7,7 +7,12 @@
  *  - images (file picker → DataURL, click-to-select + corner-resize)
  *  - find/replace with highlighting (Ctrl+F)
  *  - live word/char count in status bar
- *  - keyboard: Ctrl+B/I/U, Ctrl+S (download JSON), Ctrl+O (open), Ctrl+F (find), Ctrl+Z/Y (native)
+ *  - per-tab snapshot undo/redo stack (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) — replaces
+ *    the deprecated browser-native execCommand undo. Cursor + range are stored
+ *    alongside each snapshot via DOM-path coordinates, so undo restores the
+ *    caret precisely, not just to the start of the editor.
+ *  - keyboard: Ctrl+B/I/U, Ctrl+S (download JSON), Ctrl+O (open), Ctrl+F (find),
+ *    Ctrl+Z (undo), Ctrl+Y / Ctrl+Shift+Z (redo)
  *  - autosave to localStorage (debounced) + Recent list update
  *
  * Persistence shape:
@@ -31,6 +36,13 @@ const APP_VERSION = 1;
 const SAFE_PASTE_TAGS = new Set(['P','DIV','BR','B','STRONG','I','EM','U','S','STRIKE','H1','H2','H3','H4','UL','OL','LI','A','BLOCKQUOTE','TABLE','THEAD','TBODY','TR','TD','TH','SPAN','IMG']);
 const STRIP_ATTRS = ['style','class','id','onclick','onload','onerror'];
 
+// Undo/redo: per-tab linear history. Each entry is {html, sel}; the cursor
+// indexes the "current" state. Branching is destroyed on the next commit
+// after an undo (standard linear-history semantics). Cap at 100 to bound
+// memory — at typical doc sizes (~5KB html + small selection), ~500 KB.
+const HISTORY_LIMIT = 100;
+const SNAPSHOT_IDLE_MS = 700;
+
 const state = {
     container: null,
     editor: null,
@@ -42,13 +54,135 @@ const state = {
     replaceInput: null,
     findHits: [],
     findIdx: -1,
-    openDocs: [],     // [{id,title,html,createdAt,updatedAt,dirty}]
+    openDocs: [],     // [{id,title,html,createdAt,updatedAt,dirty,history}]
     activeId: null,
     saveDebounced: null,
+    snapshotDebounced: null,
     mounted: false,
     selectedImg: null,
     imgResizeBox: null
 };
+
+/* ---------------- Undo / Redo (snapshot stack) ---------------- */
+
+// Find-bar highlights are transient UI, not content. Strip <mark.find-hit>
+// wrappers from any html we persist or snapshot — otherwise saving with the
+// find bar open leaves the marks in localStorage and they survive reload.
+function cleanHtml(html) {
+    if (!html || html.indexOf('find-hit') === -1) return html;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    tmp.querySelectorAll('mark.find-hit').forEach(m => {
+        const t = document.createTextNode(m.textContent || '');
+        m.replaceWith(t);
+    });
+    tmp.normalize();
+    return tmp.innerHTML;
+}
+
+function nodePath(node) {
+    const path = [];
+    while (node && node !== state.editor) {
+        const p = node.parentNode;
+        if (!p) return null;
+        path.unshift(Array.prototype.indexOf.call(p.childNodes, node));
+        node = p;
+    }
+    return node === state.editor ? path : null;
+}
+function resolvePath(path) {
+    if (!path) return null;
+    let n = state.editor;
+    for (const idx of path) {
+        if (!n || !n.childNodes[idx]) return null;
+        n = n.childNodes[idx];
+    }
+    return n;
+}
+function captureSelection() {
+    if (!state.editor) return null;
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const r = sel.getRangeAt(0);
+    if (!state.editor.contains(r.startContainer) || !state.editor.contains(r.endContainer)) return null;
+    const startPath = nodePath(r.startContainer);
+    const endPath = nodePath(r.endContainer);
+    if (!startPath || !endPath) return null;
+    return { startPath, startOffset: r.startOffset, endPath, endOffset: r.endOffset };
+}
+function restoreSelection(s) {
+    if (!s) return;
+    const start = resolvePath(s.startPath);
+    const end = resolvePath(s.endPath);
+    if (!start || !end) return;
+    try {
+        const r = document.createRange();
+        const maxStart = start.nodeType === Node.TEXT_NODE ? start.nodeValue.length : start.childNodes.length;
+        const maxEnd = end.nodeType === Node.TEXT_NODE ? end.nodeValue.length : end.childNodes.length;
+        r.setStart(start, Math.min(s.startOffset, maxStart));
+        r.setEnd(end, Math.min(s.endOffset, maxEnd));
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+    } catch {} // boundaries can race with DOM changes; silently skip
+}
+
+function ensureHistory(d) {
+    if (!d.history) d.history = { stack: [], cursor: -1 };
+    return d.history;
+}
+// Commit current editor state as a new history entry. No-op if identical to
+// the existing cursor entry. Truncates any redo branch.
+function commitSnapshot(d) {
+    if (!d || !state.editor) return;
+    const html = cleanHtml(state.editor.innerHTML);
+    const h = ensureHistory(d);
+    const cur = h.stack[h.cursor];
+    if (cur && cur.html === html) return;
+    h.stack = h.stack.slice(0, h.cursor + 1);
+    h.stack.push({ html, sel: captureSelection() });
+    h.cursor++;
+    if (h.stack.length > HISTORY_LIMIT) {
+        h.stack.shift();
+        h.cursor--;
+    }
+}
+function undo() {
+    const d = active(); if (!d) return;
+    if (state.snapshotDebounced) state.snapshotDebounced.cancel();
+    // Commit any pending in-flight edits so the first Ctrl+Z undoes them as
+    // their own discrete step rather than skipping past them.
+    commitSnapshot(d);
+    const h = ensureHistory(d);
+    if (h.cursor <= 0) return;
+    h.cursor--;
+    const s = h.stack[h.cursor];
+    clearImgSelection();
+    state.editor.focus();
+    state.editor.innerHTML = s.html;
+    restoreSelection(s.sel);
+    afterHistoryNav(d);
+}
+function redo() {
+    const d = active(); if (!d) return;
+    if (state.snapshotDebounced) state.snapshotDebounced.cancel();
+    const h = ensureHistory(d);
+    if (h.cursor >= h.stack.length - 1) return;
+    h.cursor++;
+    const s = h.stack[h.cursor];
+    clearImgSelection();
+    state.editor.focus();
+    state.editor.innerHTML = s.html;
+    restoreSelection(s.sel);
+    afterHistoryNav(d);
+}
+function afterHistoryNav(d) {
+    d.dirty = true;
+    setIndicator('saving');
+    renderTabs();
+    updateWordCount();
+    if (state.saveDebounced) state.saveDebounced();
+}
 
 function newDoc(title = 'Untitled') {
     return {
@@ -128,8 +262,9 @@ function unmount() {
     if (state.activeId && state.editor) {
         const cur = findOpen(state.activeId);
         if (cur) {
-            cur.html = state.editor.innerHTML;
+            cur.html = cleanHtml(state.editor.innerHTML);
             cur.updatedAt = nowIso();
+            if (state.snapshotDebounced) state.snapshotDebounced.flush();
         }
     }
     if (state.saveDebounced) state.saveDebounced.flush();
@@ -179,18 +314,28 @@ function buildDOM() {
 
     state.saveDebounced = debounce(() => {
         const d = active(); if (!d) return;
-        d.html = state.editor.innerHTML;
+        d.html = cleanHtml(state.editor.innerHTML);
         d.updatedAt = nowIso();
         d.dirty = false;
         const payload = { app: APP_MIME, version: APP_VERSION, id: d.id, title: d.title, createdAt: d.createdAt, updatedAt: d.updatedAt, html: d.html };
         const ok = docs.save(payload);
         setIndicator(ok ? 'saved' : 'error');
     }, 900);
+
+    // Capture a snapshot 700ms after the user stops typing. Anything sooner
+    // floods the stack; anything later loses granularity. Structural ops
+    // commit synchronously via commitSnapshot() and don't depend on this.
+    state.snapshotDebounced = debounce(() => {
+        commitSnapshot(active());
+    }, SNAPSHOT_IDLE_MS);
 }
 
 function toolbarHTML() {
     return `
     <div class="toolbar doc-toolbar">
+        <button class="btn-icon" data-action="undo" title="Undo (Ctrl+Z)">↶</button>
+        <button class="btn-icon" data-action="redo" title="Redo (Ctrl+Y)">↷</button>
+        <div class="btn-divider"></div>
         <select class="heading-pick" title="Block style">
             <option value="p">Paragraph</option>
             <option value="h1">Heading 1</option>
@@ -244,11 +389,20 @@ function bindToolbar() {
 
 function execCmd(cmd, value = null) {
     state.editor.focus();
+    // Commit any pending text-input snapshot so this formatting change is its
+    // own discrete undo step, not merged with the preceding typing.
+    if (state.snapshotDebounced) state.snapshotDebounced.flush();
     document.execCommand(cmd, false, value);
     markDirty();
+    // Snapshot the post-format state right away — formatting ops fire input
+    // events on most browsers, but we don't want to rely on that across all
+    // execCommand variants.
+    commitSnapshot(active());
 }
 
 function handleAction(action) {
+    if (action === 'undo') return undo();
+    if (action === 'redo') return redo();
     if (action === 'link') return doInsertLink();
     if (action === 'table') return doInsertTable();
     if (action === 'image') return doInsertImage();
@@ -331,8 +485,13 @@ function setActive(id) {
     if (state.activeId && state.activeId !== id) {
         const cur = findOpen(state.activeId);
         if (cur && state.editor) {
-            cur.html = state.editor.innerHTML;
+            cur.html = cleanHtml(state.editor.innerHTML);
             cur.updatedAt = nowIso();
+            // Snapshot the outgoing tab's last state too — without this, edits
+            // made right before tab-switch are lost from the undo stack of
+            // the doc the user actually made them in.
+            if (state.snapshotDebounced) state.snapshotDebounced.cancel();
+            commitSnapshot(cur);
         }
         if (state.saveDebounced) state.saveDebounced.flush();
     }
@@ -346,6 +505,9 @@ function setActive(id) {
     updateWordCount();
     clearImgSelection();
     closeFind();
+    // Seed history on first activation. Subsequent activations inherit the
+    // doc's existing stack (per-tab linear history).
+    if (!d.history) commitSnapshot(d);
     // Update hash without retrigger
     if (location.hash !== '#/doc/' + id) history.replaceState(null, '', '#/doc/' + id);
 }
@@ -378,6 +540,7 @@ function bindEditor() {
     state.editor.addEventListener('input', () => {
         markDirty();
         updateWordCount();
+        if (state.snapshotDebounced) state.snapshotDebounced();
     });
     state.editor.addEventListener('paste', onPaste);
     state.editor.addEventListener('click', onEditorClick);
@@ -388,6 +551,9 @@ function onPaste(e) {
     e.preventDefault();
     const cd = e.clipboardData;
     if (!cd) return;
+    // Commit any pending text-input snapshot so the paste becomes a discrete
+    // undo step rather than merging with the surrounding typing.
+    if (state.snapshotDebounced) state.snapshotDebounced.flush();
     // Prefer text/html, sanitize.
     let html = cd.getData('text/html');
     if (html) {
@@ -398,6 +564,7 @@ function onPaste(e) {
         if (txt) document.execCommand('insertText', false, txt);
     }
     markDirty();
+    commitSnapshot(active());
 }
 
 function sanitizeHTML(html) {
@@ -449,15 +616,18 @@ function onEditorContext(e) {
         { label: 'Insert column left',  onClick: () => insertCol(table, cellIndex(cell), 'left') },
         { label: 'Insert column right', onClick: () => insertCol(table, cellIndex(cell), 'right') },
         { sep: true },
-        { label: 'Delete row',     onClick: () => { tr.remove(); markDirty(); if (!table.querySelector('tr')) table.remove(); } },
+        { label: 'Delete row',     onClick: () => { tr.remove(); if (!table.querySelector('tr')) table.remove(); markDirty(); commitSnapshot(active()); } },
         { label: 'Delete column',  onClick: () => deleteCol(table, cellIndex(cell)) },
-        { label: 'Delete table',   onClick: () => { table.remove(); markDirty(); } }
+        { label: 'Delete table',   onClick: () => { table.remove(); markDirty(); commitSnapshot(active()); } }
     ]);
 }
 
 function cellIndex(cell) {
     return Array.from(cell.parentElement.children).indexOf(cell);
 }
+// Table-structure edits don't fire `input` events on contenteditable, so we
+// have to call commitSnapshot() ourselves — without it, undo would not see
+// them at all.
 function insertRow(tr, where) {
     const cols = tr.children.length;
     const newRow = document.createElement('tr');
@@ -469,6 +639,7 @@ function insertRow(tr, where) {
     if (where === 'above') tr.parentElement.insertBefore(newRow, tr);
     else tr.parentElement.insertBefore(newRow, tr.nextSibling);
     markDirty();
+    commitSnapshot(active());
 }
 function insertCol(table, colIdx, where) {
     const rows = table.querySelectorAll('tr');
@@ -482,12 +653,14 @@ function insertCol(table, colIdx, where) {
         else r.insertBefore(newCell, cell.nextSibling);
     });
     markDirty();
+    commitSnapshot(active());
 }
 function deleteCol(table, colIdx) {
     const rows = table.querySelectorAll('tr');
     rows.forEach(r => { if (r.children[colIdx]) r.removeChild(r.children[colIdx]); });
     if (!table.querySelector('td,th')) table.remove();
     markDirty();
+    commitSnapshot(active());
 }
 
 /* ---------------- Image select + resize ---------------- */
@@ -536,7 +709,7 @@ function showImgResizeBox(img) {
         img.style.height = 'auto';
         positionResizeBox();
     };
-    const onUp = () => { if (dragging) { dragging = false; markDirty(); } };
+    const onUp = () => { if (dragging) { dragging = false; markDirty(); commitSnapshot(active()); } };
     const reflow = () => positionResizeBox();
     const editorWrap = document.querySelector('#doc-editor-wrap');
 
@@ -589,6 +762,7 @@ async function doInsertLink() {
     // Add target=_blank
     const links = state.editor.querySelectorAll('a[href]');
     links.forEach(a => { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener'); });
+    commitSnapshot(active());
 }
 
 async function doInsertTable() {
@@ -633,8 +807,10 @@ function insertTableHTML(rows, cols, withHead) {
     }
     html += '</tbody></table><p><br></p>';
     state.editor.focus();
+    if (state.snapshotDebounced) state.snapshotDebounced.flush();
     document.execCommand('insertHTML', false, html);
     markDirty();
+    commitSnapshot(active());
 }
 
 async function doInsertImage() {
@@ -644,8 +820,10 @@ async function doInsertImage() {
     const dataURL = await pickImageAsDataURL();
     if (!dataURL) return;
     state.editor.focus();
+    if (state.snapshotDebounced) state.snapshotDebounced.flush();
     document.execCommand('insertHTML', false, `<img src="${dataURL}" alt="">`);
     markDirty();
+    commitSnapshot(active());
 }
 function pickImageAsDataURL() {
     return new Promise(resolve => {
@@ -794,6 +972,7 @@ function replaceOne() {
     m.replaceWith(t);
     state.editor.normalize();
     markDirty();
+    commitSnapshot(active());
     runFind();
 }
 function replaceAll() {
@@ -806,6 +985,7 @@ function replaceAll() {
     });
     state.editor.normalize();
     markDirty();
+    commitSnapshot(active());
     runFind();
     toast(`Replaced ${n}.`, { kind: 'ok' });
 }
@@ -836,8 +1016,8 @@ function updateWordCount() {
 
 function doDownload() {
     const d = active(); if (!d) return;
-    // Force flush latest html
-    d.html = state.editor.innerHTML;
+    // Force flush latest html (strip transient find-hit marks)
+    d.html = cleanHtml(state.editor.innerHTML);
     d.updatedAt = nowIso();
     const payload = { app: APP_MIME, version: APP_VERSION, id: d.id, title: d.title, createdAt: d.createdAt, updatedAt: d.updatedAt, html: d.html };
     docs.save(payload);
@@ -866,10 +1046,10 @@ async function doOpen() {
 
 function doExportHtml() {
     const d = active(); if (!d) return;
-    // Strip any active find-hit <mark> wrappers before serialising — otherwise
-    // exported HTML carries our highlight class and looks broken outside the
-    // app.
-    clearHighlights();
+    // Strip transient find-hit <mark> wrappers from the body — exported HTML
+    // shouldn't carry our highlight class. cleanHtml() does this without
+    // mutating the live editor.
+    const body = cleanHtml(state.editor.innerHTML);
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(d.title)}</title>
 <style>
 body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color:#111; line-height:1.65; }
@@ -881,7 +1061,7 @@ blockquote { border-left:3px solid #FD7D00; padding: 4px 14px; color:#555; }
 img { max-width: 100%; }
 a { color:#FD7D00; }
 </style></head><body>
-${state.editor.innerHTML}
+${body}
 </body></html>`;
     file.download(safeFilename(d.title) + '.html', html, 'text/html');
     toast('HTML exported.', { kind: 'ok' });
@@ -901,6 +1081,12 @@ function onGlobalKey(e) {
     if (meta && e.key.toLowerCase() === 's') { e.preventDefault(); doDownload(); return; }
     if (meta && e.key.toLowerCase() === 'o') { e.preventDefault(); doOpen(); return; }
     if (meta && e.key.toLowerCase() === 'f') { e.preventDefault(); toggleFind(true); return; }
+    // Intercept Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z BEFORE the browser's native
+    // undo stack handles them — otherwise we get a doubled / confused state
+    // where the browser undoes one execCommand step and our snapshot stack
+    // undoes another.
+    if (meta && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+    if (meta && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); return; }
     if (e.key === 'Escape' && state.findBar && !state.findBar.hidden) { closeFind(); return; }
 }
 

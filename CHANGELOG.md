@@ -4,6 +4,22 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] — 2026-05-15 — "byteDoc focus"
+
+byteDoc hadn't had a focused release in seven versions; this one is.
+
+### Added — snapshot undo/redo
+
+- **Per-tab linear history stack** (cap 100 entries) replaces reliance on the deprecated browser-native `document.execCommand` undo. Each entry stores `{html, sel}` where `sel` is a DOM-path encoding of the caret/range. Undo restores both content **and** caret position.
+- **Keyboard**: `Ctrl+Z` undo, `Ctrl+Y` and `Ctrl+Shift+Z` redo. Intercepted with `preventDefault` so the browser's native stack doesn't fight ours.
+- **Toolbar buttons**: ↶ Undo / ↷ Redo, leftmost in the toolbar.
+- **Commit timing**: idle typing commits 700 ms after the last input. Structural operations (table insert, image insert, paste, formatting via execCmd, link insert, image resize, find-replace, row/col add/delete, table delete) commit synchronously — they don't fire `input` events on contenteditable reliably and would otherwise be invisible to undo.
+- **Stack hygiene**: identical-html commits are no-ops. Switching tabs commits the outgoing tab's state into its own per-tab stack before navigating, so edits aren't dropped or attributed to the wrong tab. Undo branches are truncated on the next commit (standard linear-history semantics).
+
+### Fixed
+
+- **Find-bar `<mark>` wrappers no longer leak into persistence**. With the find bar open, the editor's innerHTML contained transient `<mark class="find-hit">` elements; the debounced autosave was writing those into localStorage, so they survived reload. Added a `cleanHtml()` helper that strips them; called from `saveDebounced`, `doDownload`, `doExportHtml`, snapshot commits, and the outgoing-tab capture in `setActive` / `unmount`.
+
 ## [0.2.1] — 2026-05-15
 
 ### Fixed (completes the v0.2 spreadsheet-parity story)
