@@ -4,6 +4,32 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-05-15 — "app interior polish"
+
+The 0.3.0 polish landed mostly on the hub. This one targets the actual
+apps — the bits the user spends 99% of their time in.
+
+### byteSheet
+
+- **Excel-style row + column header highlight.** Clicking C5 now highlights the C column header AND the 5 row header with an orange tint + accent text. Makes "where is the active cell?" instantly readable across a wide grid. Updates with selection drag, arrow-key navigation, click — anywhere the selection moves. Cleared automatically when selection changes.
+- **Subtle cell hover state.** Hovering a cell paints it with 4% accent — Excel does this, Sheets doesn't. Doesn't compete with selection or range visuals since the tint is well below those.
+- **Status bar as chips.** Was: plain pipe-separated text. Now: dark pill chips with accent labels (`CELL A1`, `∑ 1234`, `x̄ 411`, `N 3`). The active-cell chip gets an orange-tinted border + glowing strong text.
+- **Accent text selection** inside cell editor and formula bar — orange-tinted background instead of browser default blue.
+
+### byteDoc
+
+- **Status bar as chips.** Same chip system as byteSheet. `W 142`, `C 891`, `¶ 12`, brand right-aligned.
+- **Accent text selection** in the editor body — orange-tinted, visible across body / headings / bold / etc.
+- **Editor focus ring.** When the editor has focus, border picks up a soft 25% accent + a 3px outer halo. Subtle — only there when you're writing.
+
+### Shared
+
+- **Save indicator animations.**
+  - `saving` → pulsing accent dot with a soft glow (1.1s ease-in-out infinite, opacity + scale).
+  - `saved` → green dot pop (0.4 → 1.3 → 1, cubic-bezier soft).
+  - `error` → red dot quick horizontal shake.
+- **Polished button dividers** — vertical gradient line instead of flat 1px, fades at the ends so the divider has presence without being a hard rule.
+
 ## [0.3.0] — 2026-05-15 — "visual polish"
 
 Top-to-bottom design refresh, voidcore-aligned. No functional changes —

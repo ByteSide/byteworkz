@@ -134,13 +134,41 @@ button { font: inherit; color: inherit; }
 .doc-title-input:focus { background: var(--bg); border-color: var(--border); outline: none; }
 
 .save-indicator {
-    font-size: 11px; color: var(--fg-dim);
-    padding: 2px 6px;
-    transition: opacity .25s;
+    font-size: 14px;
+    color: var(--fg-dim);
+    padding: 0 4px;
+    line-height: 1;
+    transition: color var(--t-norm);
+    display: inline-block;
 }
-.save-indicator[data-state="saving"] { color: var(--accent); }
-.save-indicator[data-state="saved"] { color: var(--ok); }
-.save-indicator[data-state="error"] { color: var(--danger); }
+.save-indicator[data-state="idle"]   { color: var(--fg-dim); }
+.save-indicator[data-state="saving"] {
+    color: var(--accent);
+    animation: indicator-pulse 1.1s ease-in-out infinite;
+    text-shadow: 0 0 8px var(--accent-glow);
+}
+.save-indicator[data-state="saved"] {
+    color: var(--ok);
+    animation: indicator-pop .38s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.save-indicator[data-state="error"] {
+    color: var(--danger);
+    animation: indicator-shake .35s ease-in-out;
+}
+@keyframes indicator-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.45; transform: scale(0.85); }
+}
+@keyframes indicator-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    55%  { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(1);   opacity: 1; }
+}
+@keyframes indicator-shake {
+    0%, 100% { transform: translateX(0); }
+    25%      { transform: translateX(-3px); }
+    75%      { transform: translateX(3px); }
+}
 
 /* ---------------- Main ---------------- */
 
@@ -406,9 +434,11 @@ button { font: inherit; color: inherit; }
 }
 
 .btn-divider {
-    width: 1px; height: 18px;
-    background: var(--border-soft);
-    margin: 0 6px;
+    width: 1px;
+    height: 20px;
+    background: linear-gradient(180deg, transparent, var(--border-strong) 25%, var(--border-strong) 75%, transparent);
+    margin: 0 8px;
+    flex-shrink: 0;
 }
 
 /* ---------------- Toolbars (shared across apps) ---------------- */
@@ -500,15 +530,60 @@ button { font: inherit; color: inherit; }
 /* ---------------- Status bar ---------------- */
 
 .status-bar {
-    display: flex; align-items: center; gap: 16px;
-    padding: 4px 12px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 12px;
     background: var(--surface);
     border-top: 1px solid var(--border);
     color: var(--fg-muted);
     font-size: 11px; font-family: var(--mono);
-    min-height: 24px;
+    min-height: 28px;
+    flex-wrap: wrap;
 }
-.status-bar .spacer { flex: 1; }
+.status-bar .spacer { flex: 1; min-width: 8px; }
+
+/* Status chips — compact pills with optional label prefix. Used in both
+ * doc and sheet status bars. The label is uppercased and accent-tinted,
+ * the strong value sits right of it. */
+.status-bar .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    color: var(--fg-muted);
+    transition: border-color var(--t-fast), background var(--t-fast);
+}
+.status-bar .status-chip:hover {
+    border-color: var(--border-strong);
+    background: rgba(0, 0, 0, 0.35);
+}
+.status-bar .status-chip strong {
+    color: var(--fg);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.status-bar .status-chip .status-label {
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.status-bar .status-chip.status-cell {
+    border-color: rgba(253, 125, 0, 0.30);
+    background: rgba(253, 125, 0, 0.08);
+}
+.status-bar .status-chip.status-cell strong {
+    color: var(--accent);
+    text-shadow: 0 0 8px var(--accent-glow);
+}
+.status-bar .status-brand {
+    font-weight: 600;
+    color: var(--fg-dim);
+    letter-spacing: 0.05em;
+}
 
 /* ---------------- Toast ---------------- */
 

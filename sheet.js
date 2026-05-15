@@ -538,6 +538,9 @@ function forEachInSelection(fn) {
 function updateSelectionVisual() {
     const tds = state.gridTable.querySelectorAll('td.sel, td.in-range');
     tds.forEach(t => { t.classList.remove('sel'); t.classList.remove('in-range'); });
+    // Clear previous row/col header highlights — Excel-style "where am I?"
+    // indicator. Re-applied below based on current selection bounds.
+    state.gridTable.querySelectorAll('th.is-active-header').forEach(th => th.classList.remove('is-active-header'));
     const b = selectionBounds();
     for (let r = b.r1; r <= b.r2; r++) {
         for (let cn = b.c1; cn <= b.c2; cn++) {
@@ -547,6 +550,16 @@ function updateSelectionVisual() {
             if (ref === state.activeRef) td.classList.add('sel');
             else td.classList.add('in-range');
         }
+    }
+    // Highlight column headers in selection range
+    for (let cn = b.c1; cn <= b.c2; cn++) {
+        const colTh = state.gridTable.querySelector(`thead th[data-col="${cn}"]`);
+        if (colTh) colTh.classList.add('is-active-header');
+    }
+    // Highlight row headers in selection range
+    for (let r = b.r1; r <= b.r2; r++) {
+        const rowTh = state.gridTable.querySelector(`tbody th.row-head[data-row="${r}"]`);
+        if (rowTh) rowTh.classList.add('is-active-header');
     }
     // Scroll active into view
     const activeTd = state.gridTable.querySelector(`td[data-ref="${state.activeRef}"]`);
@@ -1819,8 +1832,16 @@ function updateStatusBar() {
         if (typeof v === 'string') { const f = parseFloat(v); if (!isNaN(f)) v = f; }
         if (typeof v === 'number') { sum += v; n++; hasNum = true; }
     });
-    const stats = hasNum ? `sum ${formatNum(sum)} • avg ${formatNum(sum/n)} • count ${n}` : '';
-    state.statusBar.innerHTML = `<span>${state.activeRef}</span><span>${count} cell${count===1?'':'s'} selected</span><span>${stats}</span><span class="spacer"></span><span>byteSheet</span>`;
+    const parts = [`<span class="status-chip status-cell"><span class="status-label">CELL</span><strong>${state.activeRef}</strong></span>`];
+    if (count > 1) parts.push(`<span class="status-chip">${count} selected</span>`);
+    if (hasNum) {
+        parts.push(`<span class="status-chip"><span class="status-label">∑</span><strong>${formatNum(sum)}</strong></span>`);
+        parts.push(`<span class="status-chip"><span class="status-label">x̄</span><strong>${formatNum(sum/n)}</strong></span>`);
+        parts.push(`<span class="status-chip"><span class="status-label">N</span><strong>${n}</strong></span>`);
+    }
+    parts.push(`<span class="spacer"></span>`);
+    parts.push(`<span class="status-brand">byteSheet</span>`);
+    state.statusBar.innerHTML = parts.join('');
 }
 
 /* ---------------- Register ---------------- */

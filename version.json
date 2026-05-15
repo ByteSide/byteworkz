@@ -1,6 +1,6 @@
 {
-  "version": "0.3.0",
+  "version": "0.3.1",
   "date": "2026-05-15",
-  "build": "visual-polish",
+  "build": "app-interior-polish",
   "apps": ["byteDoc", "byteSheet"]
 }

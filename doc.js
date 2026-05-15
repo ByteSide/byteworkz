@@ -1038,11 +1038,17 @@ function updateWordCount() {
     const text = state.editor.innerText || '';
     const words = (text.match(/\S+/g) || []).length;
     const chars = text.length;
-    wc.textContent = `${words} words • ${chars} chars`;
+    wc.textContent = `${words} words`;
     // status bar
     if (state.statusBar) {
         const paras = state.editor.querySelectorAll('p,h1,h2,h3,h4,li,td,th,blockquote').length;
-        state.statusBar.innerHTML = `<span>${words} words</span><span>${chars} chars</span><span>${paras} blocks</span><span class="spacer"></span><span>byteDoc</span>`;
+        state.statusBar.innerHTML = `
+            <span class="status-chip"><span class="status-label">W</span><strong>${words}</strong></span>
+            <span class="status-chip"><span class="status-label">C</span><strong>${chars}</strong></span>
+            <span class="status-chip"><span class="status-label">¶</span><strong>${paras}</strong></span>
+            <span class="spacer"></span>
+            <span class="status-brand">byteDoc</span>
+        `;
     }
 }
 
