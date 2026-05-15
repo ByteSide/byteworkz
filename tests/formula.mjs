@@ -282,5 +282,33 @@ for (const [formula, oldN, newN, expected] of renameCases) {
     else { fail++; console.log(`rename FAIL: ${formula} (${oldN}→${newN})  →  got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`); }
 }
 
+// ── Sort: rowMap with force:true + skipRanges (cells move physically; abs
+// refs track too; range boundaries stay because the data within a range is
+// just reordered, not relocated). Mirrors sheet.js' shiftAllFormulaRefs call.
+function applySort(formula, rowMap) {
+    const rowOp = (row) => rowMap.has(row) ? rowMap.get(row) : row;
+    return rewriteFormula(formula, tk => {
+        // Bare refs only — sheet-qualified refs to OTHER sheets shouldn't shift.
+        if (tk.sheet) return null;
+        if (tk.type === 'REF') return shiftRef(tk, rowOp, null, { force: true });
+        // Ranges intentionally NOT shifted during sort.
+        return null;
+    });
+}
+// Sort [3, 1, 2] ascending → original row 1 goes to position 3, row 2 to position 1, row 3 to position 2.
+const sortMap = new Map([[1, 3], [2, 1], [3, 2]]);
+const sortCases = [
+    ['A1+A2+A3',     sortMap, 'A3+A1+A2'],   // single refs follow moves
+    ['$A$1+A2',      sortMap, '$A$3+A1'],    // abs follows too (cell physically moved)
+    ['SUM(A1:A3)',   sortMap, 'SUM(A1:A3)'], // range BOUNDARIES preserved
+    ['A4+A1',        sortMap, 'A4+A3'],      // row 4 not in sort → unchanged
+    ['Sheet2!A1',    sortMap, 'Sheet2!A1']   // other sheet refs not affected
+];
+for (const [formula, m, expected] of sortCases) {
+    const got = applySort(formula, m);
+    if (got === expected) { pass++; }
+    else { fail++; console.log(`sort FAIL: ${formula}  →  got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`); }
+}
+
 console.log(`\n${pass}/${pass+fail} passed`);
 process.exit(fail === 0 ? 0 : 1);

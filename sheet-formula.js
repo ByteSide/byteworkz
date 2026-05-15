@@ -763,15 +763,18 @@ export function rangeToString(startCell, endCell, sheet) {
 // Apply rowOp/colOp to a single REF token, returning the new ref text.
 // rowOp/colOp are functions (1-based number → new number | null). `null`
 // means "this row/col was deleted" → produces literal `#REF!`. Absolute
-// markers ($A, A$1) skip the transform.
-export function shiftRef(tk, rowOp, colOp) {
+// markers ($A, A$1) skip the transform by default — that's the right thing
+// for insert/delete (a $5 reference means "row 5 specifically"). For SORT
+// the cell physically moves to a new row, so absolute refs must follow it
+// too: pass `{force: true}` to ignore the absolute markers.
+export function shiftRef(tk, rowOp, colOp, opts = {}) {
     let row = tk.row, col = tk.col;
-    if (!tk.rowAbs && rowOp) {
+    if (rowOp && (opts.force || !tk.rowAbs)) {
         const r = rowOp(tk.row);
         if (r === null) return '#REF!';
         row = r;
     }
-    if (!tk.colAbs && colOp) {
+    if (colOp && (opts.force || !tk.colAbs)) {
         const c = colOp(colToNum(tk.col));
         if (c === null) return '#REF!';
         col = numToCol(c);
@@ -781,16 +784,17 @@ export function shiftRef(tk, rowOp, colOp) {
 
 // Apply rowOp/colOp to a RANGE token. If any endpoint is invalidated, the
 // whole range becomes `#REF!` (matches Excel's behaviour — a partial-overlap
-// shrink would be nicer but is out of scope).
-export function shiftRange(tk, rowOp, colOp) {
+// shrink would be nicer but is out of scope). `{force: true}` same as for
+// shiftRef — absolute endpoints follow the move during sort.
+export function shiftRange(tk, rowOp, colOp, opts = {}) {
     const ns = { ...tk.startCell }, ne = { ...tk.endCell };
     for (const cell of [ns, ne]) {
-        if (!cell.rowAbs && rowOp) {
+        if (rowOp && (opts.force || !cell.rowAbs)) {
             const r = rowOp(cell.row);
             if (r === null) return '#REF!';
             cell.row = r;
         }
-        if (!cell.colAbs && colOp) {
+        if (colOp && (opts.force || !cell.colAbs)) {
             const c = colOp(colToNum(cell.col));
             if (c === null) return '#REF!';
             cell.col = numToCol(c);

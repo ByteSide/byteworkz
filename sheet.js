@@ -1160,8 +1160,9 @@ function renameSheet(idx, newName) {
     return true;
 }
 
-function shiftAllFormulaRefs({ rowOp, colOp, modifiedSheetIdx }) {
+function shiftAllFormulaRefs({ rowOp, colOp, modifiedSheetIdx, force = false, skipRanges = false }) {
     const modifiedSheetName = state.doc.sheets[modifiedSheetIdx].name;
+    const opts = { force };
     state.doc.sheets.forEach((sh, sIdx) => {
         Object.values(sh.cells).forEach(cell => {
             if (cell.f == null) return;
@@ -1170,8 +1171,15 @@ function shiftAllFormulaRefs({ rowOp, colOp, modifiedSheetIdx }) {
                     ? tk.sheet === modifiedSheetName
                     : sIdx === modifiedSheetIdx;
                 if (!targets) return null;
-                if (tk.type === 'REF')   return shiftRef(tk, rowOp, colOp);
-                if (tk.type === 'RANGE') return shiftRange(tk, rowOp, colOp);
+                if (tk.type === 'REF')   return shiftRef(tk, rowOp, colOp, opts);
+                if (tk.type === 'RANGE') {
+                    // Sort uses skipRanges:true — data within a range is
+                    // reordered, not relocated, so SUM(A1:A3) stays
+                    // SUM(A1:A3) after sorting. Insert/delete still shifts
+                    // ranges because their start/end ROW NUMBERS change.
+                    if (skipRanges) return null;
+                    return shiftRange(tk, rowOp, colOp, opts);
+                }
                 return null;
             });
         });
@@ -1281,10 +1289,7 @@ function deleteActiveCol() {
 function sortByActiveCol(asc) {
     const [c] = splitRef(state.activeRef);
     const sh = activeSheet();
-    const cn = colToNum(c);
-    // Sort rows 2..rows (assume row 1 is header)
-    const headerRow = 1;
-    const firstDataRow = headerRow + 1;
+    const firstDataRow = 2; // row 1 is the header
     const rowsData = [];
     for (let r = firstDataRow; r <= sh.rows; r++) {
         const map = {};
@@ -1304,16 +1309,31 @@ function sortByActiveCol(asc) {
             : b.map[c].v);
         return cmpVal(va, vb) * (asc ? 1 : -1);
     });
+    // Build rowMap (oldRow → newRow) BEFORE re-placement. Rows that don't
+    // appear in rowsData (empty rows) are left out — they keep their literal
+    // row number in any formulas that reference them.
+    const rowMap = new Map();
+    rowsData.forEach((row, idx) => rowMap.set(row.r, firstDataRow + idx));
     // Clear all data rows
     for (let r = firstDataRow; r <= sh.rows; r++) {
         for (let i = 1; i <= sh.cols; i++) delete sh.cells[numToCol(i) + r];
     }
-    // Re-place
+    // Re-place at new positions
     rowsData.forEach((row, idx) => {
         const targetR = firstDataRow + idx;
         Object.entries(row.map).forEach(([col, cell]) => {
             sh.cells[col + targetR] = cell;
         });
+    });
+    // Update formula refs across ALL sheets: any ref to a row that just
+    // moved tracks to its new row. force:true because sort moves the cell
+    // physically — absolute markers must follow it too (Excel semantics).
+    shiftAllFormulaRefs({
+        rowOp: (row) => rowMap.has(row) ? rowMap.get(row) : row,
+        colOp: null,
+        modifiedSheetIdx: state.doc.activeSheet,
+        force: true,
+        skipRanges: true
     });
     fullRecompute();
     renderGrid();

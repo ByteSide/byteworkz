@@ -4,6 +4,22 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-05-15
+
+### Fixed (completes the v0.2 spreadsheet-parity story)
+
+- **Sort now updates formula refs** to follow the physically-moved cells. Single refs (`=A1`, `=$A$1`, `=Sheet2!A5` from other sheets pointing back at the sorted sheet) all track to the cell's new row. Range boundaries (`SUM(A1:A3)`) are deliberately preserved — the data within a range gets reordered, not relocated, so `SUM(A1:A3)` after sorting rows 1-3 still sums the same physical cells.
+- **Absolute refs follow during sort** (Excel semantics): `=$A$1` becomes `=$A$3` if the cell at A1 sorted to A3, because `$` means "this specific cell" — and that cell physically moved. This differs from insert/delete where `$` means "row 5 specifically, regardless of shifts". Implemented via `{force:true}` option on `shiftRef` / `shiftRange`.
+- **Refs in other sheets that target the sorted sheet** now also update (e.g., `=Sheet1!A2` in Sheet2 becomes `=Sheet1!A5` if Sheet1's row 2 sorted to row 5).
+
+### Tests
+
+- 105/105 (was 100). 5 new sort scenarios: bare refs, absolute refs, range preservation, out-of-sort-range rows, cross-sheet specificity.
+
+### v0.2 milestone closed
+
+Spreadsheet feature parity now covers: formula re-targeting on insert/delete row+col (v0.1.8), sheet-rename ref updates (v0.1.9), 17 new functions including VLOOKUP / SUMIF / INDEX / MATCH / dates / strings, cycle detection, persistent filter (v0.2.0), and sort-refs (v0.2.1). Remaining known limitation: deleting an absolute column still leaves the absolute ref intact instead of emitting `#REF!` — small follow-up.
+
 ## [0.2.0] — 2026-05-15 — "Spreadsheet feature parity"
 
 The four-commit milestone (v0.1.7 → v0.1.8 → v0.1.9 → v0.2.0) closes the
