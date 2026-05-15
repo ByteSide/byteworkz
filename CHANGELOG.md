@@ -4,6 +4,35 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.5] — 2026-05-15
+
+### Fixed (P0 — data loss / leak risks surfaced by line-by-line audit)
+
+- **byteDoc tab-switch lost unsaved edits.** `setActive` copied the outgoing editor's HTML into the in-memory doc but never flushed the pending debounced save. The debounce would then fire later against the NEW active doc, dropping the outgoing tab's changes. Fix: `state.saveDebounced.flush()` before switching activeId.
+- **byteDoc / byteSheet app-switch lost recent edits.** `unmount` tore down without flushing the pending save. Same root cause as above on a larger scope. Fix: flush in both unmounts.
+- **byteSheet doc-switch lost edits.** Navigating between two existing sheets within the debounce window (700ms) caused the pending save to fire against the new `state.doc` and discard the previous sheet's edits. Fix: flush before `state.doc` is replaced in mount.
+- **byteDoc "Insert image" required selecting the file twice.** `doInsertImage` called `file.openPicker` (which read the file as text and discarded it) AND `pickImageAsDataURL` (which prompted the user again). Fix: drop the first picker, use only the FileReader-based one.
+- **byteDoc image-resize leaked 5 listeners per image click.** The `_cleanup` callback was defined but never invoked, and it only covered 2 of the 5 listeners. Fix: register all 5 (mousemove + mouseup + 3× reflow), call `_cleanup()` from `clearImgSelection`.
+- **byteDoc "Export HTML" embedded find-highlight markup** when the find bar was open. Fix: `clearHighlights()` before serialising.
+
+### Fixed (P1 — UX polish)
+
+- **Empty Untitled docs in Recent.** Clicking the byteSheet/byteDoc tile (or "+ New") used to add an `Untitled` entry to Recent even if the user immediately navigated away. New `docs.save(doc, { silent: true })` option skips the Recent touch for the initial empty save; the first real edit triggers an ordinary save and the doc appears in Recent.
+- **Recent cap leaked orphaned doc blobs.** When the Recent list overflowed beyond 20, the oldest entry was popped but its `byteworkz.docs.<id>` blob stayed in localStorage forever. Fix: also delete the underlying blob.
+- **byteSheet `selectAll` didn't sync the formula bar** to A1 after Ctrl+A — minor cosmetic.
+- **`openAnyFile` always used 'd' as the generated id prefix** regardless of app type. Fix: 's' for byteSheet, 'd' for byteDoc.
+- **Dead code in `setCellValueFromInput`** (`cell.f = undefined; if (cell.f === undefined) delete cell.f`) collapsed to just `delete cell.f`.
+
+### Changed
+
+- `ui.js` — `debounce(fn, ms)` now exposes `.flush()` (run pending call immediately + clear timer) and `.cancel()` (drop pending call). Both are needed by the unmount / app-switch flush logic.
+
+### Known limitations carried over to v0.2 (documented)
+
+- Formula refs don't auto-update on row/column insert/delete or on column sort — references stay literal. Mitigated for now by avoiding structural edits to data that has formulas.
+- Filter is view-only (hides DOM rows, doesn't survive sheet switch / structural ops).
+- Sheet rename doesn't update cross-sheet refs in other sheets.
+
 ## [0.1.4] — 2026-05-15
 
 ### Fixed

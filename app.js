@@ -187,7 +187,10 @@ async function openAnyFile() {
         return;
     }
     const j = picked.json;
-    const id = j.id || uid('d');
+    // Prefix the generated id by app type so storage scans / debugging stay
+    // readable. The previous code always used 'd' regardless of app.
+    const prefix = j.app === 'bytesheet' ? 's' : 'd';
+    const id = j.id || uid(prefix);
     j.id = id;
     j.updatedAt = nowIso();
     docs.save(j);

@@ -91,6 +91,12 @@ function mount(container, params) {
     if (!state.mounted) buildDOM();
     state.mounted = true;
 
+    // Flush any pending save from a PREVIOUS doc that's about to be replaced —
+    // otherwise the debounced save would later fire against the new state.doc
+    // and the previous doc's edits would be lost. saveDebounced is created in
+    // buildDOM, so it always exists at this point.
+    if (state.doc && state.saveDebounced) state.saveDebounced.flush();
+
     // Load doc
     const id = params && params.id;
     if (id) {
@@ -106,7 +112,9 @@ function mount(container, params) {
         // Persist immediately so refresh on the canonical URL works AND the
         // synchronous-feeling history.replaceState (silent, no hashchange)
         // doesn't kick off a second mount that would race the in-memory state.
-        docs.save(state.doc);
+        // {silent:true} keeps the abandoned Untitled out of Recent until the
+        // first real edit triggers an ordinary save via markDirty.
+        docs.save(state.doc, { silent: true });
         history.replaceState(null, '', '#/sheet/' + state.doc.id);
     }
 
@@ -126,6 +134,11 @@ function mount(container, params) {
 }
 
 function unmount() {
+    // Flush any pending save so the user's last edits hit localStorage
+    // before we tear down. Without this, rapid app-switches lose recent
+    // changes (the debounce timer never fires).
+    if (state.saveDebounced) state.saveDebounced.flush();
+
     topbar.clearCenter();
     document.removeEventListener('keydown', onGlobalKey, true);
     state.mounted = false;
@@ -605,8 +618,7 @@ function setCellValueFromInput(ref, raw) {
         cell.f = raw.slice(1);
         cell.v = ''; // computed later
     } else {
-        cell.f = undefined;
-        if (cell.f === undefined) delete cell.f;
+        delete cell.f;
         // detect number-ish
         const n = parseFloat(raw);
         cell.v = (raw.trim() !== '' && !isNaN(n) && String(n) === raw.trim()) ? n : raw;
@@ -957,6 +969,7 @@ function selectAll() {
     state.selEnd = numToCol(sh.cols) + sh.rows;
     state.activeRef = 'A1';
     updateSelectionVisual();
+    syncFormulaBar();
 }
 
 /* ---------------- Copy/paste (TSV) ---------------- */

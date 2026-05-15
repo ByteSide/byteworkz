@@ -67,8 +67,12 @@ export const recent = {
         const idx = r.findIndex(x => x.id === meta.id);
         if (idx >= 0) r.splice(idx, 1);
         r.unshift({ id: meta.id, app: meta.app, title: meta.title, updatedAt: meta.updatedAt });
-        // cap
-        while (r.length > MAX_RECENT) r.pop();
+        // Cap to MAX_RECENT — also delete the dropped docs' blobs so they
+        // don't sit in localStorage orphaned (accessible by no UI).
+        while (r.length > MAX_RECENT) {
+            const dropped = r.pop();
+            if (dropped) localStorage.removeItem(KEY_DOC_PREFIX + dropped.id);
+        }
         lsSetJSON(KEY_RECENT, r);
     },
     remove(id) {
@@ -84,10 +88,16 @@ export const recent = {
 /* ---------------- docs ---------------- */
 
 export const docs = {
-    save(doc) {
+    // save(doc) — normal save, also adds to Recent.
+    // save(doc, { silent: true }) — persists without adding/touching Recent.
+    // Used for the initial save of a freshly-created empty doc so that
+    // abandoned "New byteDoc/Sheet" clicks don't clutter the Recent list.
+    // Once the user actually edits the doc, the debounced save runs without
+    // {silent} and the doc shows up in Recent.
+    save(doc, { silent = false } = {}) {
         if (!doc || !doc.id) return false;
         const ok = lsSetJSON(KEY_DOC_PREFIX + doc.id, doc);
-        if (ok) recent.touch({ id: doc.id, app: doc.app, title: doc.title || 'Untitled', updatedAt: doc.updatedAt || new Date().toISOString() });
+        if (ok && !silent) recent.touch({ id: doc.id, app: doc.app, title: doc.title || 'Untitled', updatedAt: doc.updatedAt || new Date().toISOString() });
         return ok;
     },
     load(id) {

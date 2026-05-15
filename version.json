@@ -1,6 +1,6 @@
 {
-  "version": "0.1.4",
+  "version": "0.1.5",
   "date": "2026-05-15",
-  "build": "fix-new-doc-race",
+  "build": "audit-fixes",
   "apps": ["byteDoc", "byteSheet"]
 }

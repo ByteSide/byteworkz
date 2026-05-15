@@ -64,13 +64,15 @@ function newDoc(title = 'Untitled') {
 // Persist an in-memory doc to localStorage in the canonical on-disk shape.
 // Needed by every new-doc code path: without an immediate save, refresh on
 // the canonical URL (#/doc/<id>) yields "Document not found".
-function persistDoc(d) {
+// Pass { silent: true } for the first save of an empty new doc — keeps the
+// abandoned Untitled out of the Recent list until the first real edit.
+function persistDoc(d, opts) {
     return docs.save({
         app: APP_MIME, version: APP_VERSION,
         id: d.id, title: d.title,
         createdAt: d.createdAt, updatedAt: d.updatedAt,
         html: d.html
-    });
+    }, opts);
 }
 
 function findOpen(id) { return state.openDocs.find(d => d.id === id) || null; }
@@ -104,10 +106,11 @@ function mount(container, params) {
     } else {
         // New empty doc — persist immediately so refresh works AND so the
         // canonical-URL-normalisation below doesn't kick off a second mount
-        // that would race the in-memory state.
+        // that would race the in-memory state. {silent:true} keeps the
+        // abandoned Untitled out of Recent until the first real edit.
         const d = newDoc();
         state.openDocs.push(d);
-        persistDoc(d);
+        persistDoc(d, { silent: true });
         setActive(d.id);
         history.replaceState(null, '', '#/doc/' + d.id);
     }
@@ -118,13 +121,25 @@ function mount(container, params) {
 }
 
 function unmount() {
+    // Capture the current editor html into the active doc, then flush the
+    // pending debounced save so the user's last edits hit localStorage
+    // before we tear down. Without this, rapid app-switches lose unsaved
+    // changes (saveDebounced fires too late, against stale state).
+    if (state.activeId && state.editor) {
+        const cur = findOpen(state.activeId);
+        if (cur) {
+            cur.html = state.editor.innerHTML;
+            cur.updatedAt = nowIso();
+        }
+    }
+    if (state.saveDebounced) state.saveDebounced.flush();
+
     topbar.clearCenter();
-    // Detach key handler
     document.removeEventListener('keydown', onGlobalKey, true);
     state.mounted = false;
+    clearImgSelection();
     if (state.container) state.container.innerHTML = '';
     closeContextMenu();
-    clearImgSelection();
 }
 
 function buildDOM() {
@@ -300,7 +315,7 @@ function renderTabs() {
     add.addEventListener('click', () => {
         const d = newDoc();
         state.openDocs.push(d);
-        persistDoc(d);
+        persistDoc(d, { silent: true });
         setActive(d.id);
         renderTabs();
         history.replaceState(null, '', '#/doc/' + d.id);
@@ -309,10 +324,17 @@ function renderTabs() {
 }
 
 function setActive(id) {
-    // Save current first
+    // Save current first — capture editor html AND flush pending debounced save
+    // so the outgoing tab's edits hit localStorage before we switch context.
+    // Without the flush, the debounced save would fire later and operate on
+    // the NEW active doc, losing the outgoing edits.
     if (state.activeId && state.activeId !== id) {
         const cur = findOpen(state.activeId);
-        if (cur && state.editor) cur.html = state.editor.innerHTML;
+        if (cur && state.editor) {
+            cur.html = state.editor.innerHTML;
+            cur.updatedAt = nowIso();
+        }
+        if (state.saveDebounced) state.saveDebounced.flush();
     }
     state.activeId = id;
     const d = active();
@@ -479,7 +501,14 @@ function selectImg(img) {
 function clearImgSelection() {
     if (state.selectedImg) state.selectedImg.classList.remove('selected');
     state.selectedImg = null;
-    if (state.imgResizeBox) { state.imgResizeBox.remove(); state.imgResizeBox = null; }
+    if (state.imgResizeBox) {
+        // Run cleanup BEFORE removing the box so the registered listeners
+        // are detached. Without this, every image click leaks 5 listeners
+        // (2 on document for drag + 3 for scroll/resize reflow).
+        if (typeof state.imgResizeBox._cleanup === 'function') state.imgResizeBox._cleanup();
+        state.imgResizeBox.remove();
+        state.imgResizeBox = null;
+    }
 }
 function showImgResizeBox(img) {
     const box = document.createElement('div');
@@ -508,16 +537,24 @@ function showImgResizeBox(img) {
         positionResizeBox();
     };
     const onUp = () => { if (dragging) { dragging = false; markDirty(); } };
+    const reflow = () => positionResizeBox();
+    const editorWrap = document.querySelector('#doc-editor-wrap');
+
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    state.editor.addEventListener('scroll', reflow);
+    if (editorWrap) editorWrap.addEventListener('scroll', reflow);
+    window.addEventListener('resize', reflow);
+
+    // ALL listeners get removed by clearImgSelection. Previous version only
+    // listed mousemove/mouseup in _cleanup and never called it anyway.
     box._cleanup = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        if (state.editor) state.editor.removeEventListener('scroll', reflow);
+        if (editorWrap) editorWrap.removeEventListener('scroll', reflow);
+        window.removeEventListener('resize', reflow);
     };
-    const reflow = () => positionResizeBox();
-    state.editor.addEventListener('scroll', reflow);
-    document.querySelector('#doc-editor-wrap').addEventListener('scroll', reflow);
-    window.addEventListener('resize', reflow);
 }
 function positionResizeBox() {
     if (!state.selectedImg || !state.imgResizeBox) return;
@@ -601,13 +638,9 @@ function insertTableHTML(rows, cols, withHead) {
 }
 
 async function doInsertImage() {
-    const picked = await file.openPicker('image/*');
-    if (!picked) return;
-    // Re-read as DataURL
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'image/*';
-    // Already have picked.content as text — but we need DataURL for binary safety.
-    // Use a fresh FileReader-based picker.
+    // pickImageAsDataURL spawns its own <input type=file> + FileReader and
+    // returns a DataURL. The previous version also called file.openPicker
+    // first, forcing the user to pick the same image twice. Removed.
     const dataURL = await pickImageAsDataURL();
     if (!dataURL) return;
     state.editor.focus();
@@ -833,6 +866,10 @@ async function doOpen() {
 
 function doExportHtml() {
     const d = active(); if (!d) return;
+    // Strip any active find-hit <mark> wrappers before serialising — otherwise
+    // exported HTML carries our highlight class and looks broken outside the
+    // app.
+    clearHighlights();
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(d.title)}</title>
 <style>
 body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color:#111; line-height:1.65; }

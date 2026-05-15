@@ -178,11 +178,29 @@ export function uid(prefix = '') {
     return prefix + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
 
-/* debounce */
+/* Debounce with flush + cancel — `flush()` runs the pending call immediately
+ * and clears the timer; `cancel()` drops the pending call. Both are needed on
+ * unmount / navigate-away so debounced saves don't get lost or fire late
+ * against stale state. */
 export function debounce(fn, ms = 300) {
-    let t;
-    return function (...args) {
-        clearTimeout(t);
-        t = setTimeout(() => fn.apply(this, args), ms);
+    let t = null, pendingArgs = null, pendingThis = null;
+    const debounced = function (...args) {
+        if (t) clearTimeout(t);
+        pendingArgs = args; pendingThis = this;
+        t = setTimeout(() => {
+            t = null;
+            fn.apply(pendingThis, pendingArgs);
+        }, ms);
     };
+    debounced.flush = () => {
+        if (t) {
+            clearTimeout(t);
+            t = null;
+            fn.apply(pendingThis, pendingArgs || []);
+        }
+    };
+    debounced.cancel = () => {
+        if (t) { clearTimeout(t); t = null; }
+    };
+    return debounced;
 }
