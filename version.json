@@ -1,6 +1,6 @@
 {
-  "version": "0.1.2",
+  "version": "0.1.3",
   "date": "2026-05-15",
-  "build": "public-release-prep",
+  "build": "consolidation-tests-templates",
   "apps": ["byteDoc", "byteSheet"]
 }

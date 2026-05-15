@@ -4,6 +4,17 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] — 2026-05-15
+
+### Added
+- `tests/formula.mjs` — pure-Node test suite for the formula engine (`node tests/formula.mjs`, 30/30 pass), referenced from README + CONTRIBUTING
+- `CONTRIBUTING.md` — dev setup, ground rules, commit-message style, architecture pointers
+- `.github/ISSUE_TEMPLATE/bug_report.md` + `feature_request.md` + `config.yml` — structured issue intake, blank issues disabled
+
+### Operations (production deploy)
+- `Cache-Control: no-cache, must-revalidate` for HTML/JS/CSS/JSON (ETag-revalidate every load — fixes the "users see stale JS after a bugfix" issue we hit between v0.1.0 and v0.1.1)
+- `Cache-Control: public, max-age=86400, must-revalidate` for SVG/manifest/txt
+
 ## [0.1.2] — 2026-05-15
 
 ### Added

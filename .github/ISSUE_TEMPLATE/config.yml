@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Live app
+    url: https://byteworkz.byteside.net
+    about: Try byteworkz live before filing an issue — many things are easier to demonstrate than describe.
+  - name: Read the contributing guide
+    url: https://github.com/ByteSide/byteworkz/blob/main/CONTRIBUTING.md
+    about: Ground rules, dev setup, commit-message style.

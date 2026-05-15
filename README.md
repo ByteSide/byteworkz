@@ -69,6 +69,18 @@ python3 -m http.server 8765
 
 That's it. No `npm install`, no bundler.
 
+## Tests
+
+The formula engine has a pure-Node test suite (no dependencies):
+
+```bash
+node tests/formula.mjs
+# 30/30 passed
+```
+
+UI features are not unit-tested — describe a manual smoke test in PR
+descriptions and we'll verify locally.
+
 ## Deploy
 
 The repository is a pure static site. Serve it with any static host. The
