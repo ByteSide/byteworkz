@@ -21,9 +21,21 @@
  */
 
 export const FUNCTIONS = new Set([
-    'SUM','AVERAGE','AVG','MIN','MAX','COUNT','COUNTA','IF','CONCAT','CONCATENATE',
-    'ABS','ROUND','FLOOR','CEILING','SQRT','POWER','AND','OR','NOT',
-    'LEN','UPPER','LOWER','TRIM','MOD','INT'
+    // aggregates
+    'SUM','AVERAGE','AVG','MIN','MAX','COUNT','COUNTA',
+    // conditional aggregates
+    'SUMIF','COUNTIF','AVERAGEIF',
+    // logical
+    'IF','AND','OR','NOT',
+    // text
+    'CONCAT','CONCATENATE','LEN','UPPER','LOWER','TRIM',
+    'LEFT','RIGHT','MID','FIND','SUBSTITUTE','REPLACE',
+    // numeric
+    'ABS','ROUND','FLOOR','CEILING','SQRT','POWER','MOD','INT','SIGN','TRUNC',
+    // lookup
+    'VLOOKUP','INDEX','MATCH',
+    // date / time
+    'TODAY','NOW','DATE','YEAR','MONTH','DAY'
 ]);
 
 const OP_INFO = {
@@ -332,7 +344,13 @@ export function evaluate(formula, ctx) {
                 const cells = enumerateRange(tk.start, tk.end);
                 cells.forEach(r => deps.add(sheetIdx + '!' + r));
                 rangeDeps.add(sheetIdx + '!' + tk.start + ':' + tk.end);
-                stack.push({ __isArray: true, values: arr });
+                // Include 2D shape so VLOOKUP / INDEX / MATCH can navigate
+                // the range — row-major order matches getRange's emission.
+                const [cA, rA] = splitRef(tk.start);
+                const [cB, rB] = splitRef(tk.end);
+                const cols = Math.abs(colToNum(cB) - colToNum(cA)) + 1;
+                const rows = Math.abs(rB - rA) + 1;
+                stack.push({ __isArray: true, values: arr, rows, cols });
             } else if (tk.type === 'OP') {
                 applyOp(stack, tk.op);
             } else if (tk.type === 'FUNC') {
@@ -500,8 +518,186 @@ function applyFunc(name, args) {
         case 'TRIM':   return toStr(flat[0]).trim();
         case 'MOD':    { const b = toNum(flat[1]); if (b === 0) throw new FormulaError('#DIV/0!'); return toNum(flat[0]) % b; }
         case 'INT':    return Math.floor(toNum(flat[0]));
+        case 'SIGN':   { const x = toNum(flat[0]); return x > 0 ? 1 : (x < 0 ? -1 : 0); }
+        case 'TRUNC':  return Math.trunc(toNum(flat[0]));
+
+        // ── text slicing ──
+        case 'LEFT':   return toStr(flat[0]).slice(0, Math.max(0, Math.floor(safeNumOrZero(flat[1] != null ? flat[1] : 1))));
+        case 'RIGHT': {
+            const s = toStr(flat[0]);
+            const n = Math.max(0, Math.floor(safeNumOrZero(flat[1] != null ? flat[1] : 1)));
+            return n === 0 ? '' : s.slice(Math.max(0, s.length - n));
+        }
+        case 'MID': {
+            const s = toStr(flat[0]);
+            const start = Math.max(1, Math.floor(safeNumOrZero(flat[1])));
+            const len = Math.max(0, Math.floor(safeNumOrZero(flat[2])));
+            return s.slice(start - 1, start - 1 + len);
+        }
+        case 'FIND': {
+            const needle = toStr(flat[0]);
+            const hay = toStr(flat[1]);
+            const start = Math.max(1, Math.floor(safeNumOrZero(flat[2] != null ? flat[2] : 1))) - 1;
+            const idx = hay.indexOf(needle, start);
+            if (idx < 0) throw new FormulaError('#VALUE! not found');
+            return idx + 1;
+        }
+        case 'SUBSTITUTE': {
+            const s = toStr(flat[0]);
+            const find = toStr(flat[1]);
+            const repl = toStr(flat[2]);
+            const nth = flat[3] != null ? Math.floor(safeNumOrZero(flat[3])) : null;
+            if (!find) return s;
+            if (nth == null) return s.split(find).join(repl);
+            let idx = -1;
+            for (let i = 0; i < nth; i++) {
+                idx = s.indexOf(find, idx + 1);
+                if (idx === -1) return s;
+            }
+            return s.slice(0, idx) + repl + s.slice(idx + find.length);
+        }
+        case 'REPLACE': {
+            // REPLACE(text, start, length, new) — Excel signature
+            const s = toStr(flat[0]);
+            const start = Math.max(1, Math.floor(safeNumOrZero(flat[1])));
+            const len = Math.max(0, Math.floor(safeNumOrZero(flat[2])));
+            const repl = toStr(flat[3]);
+            return s.slice(0, start - 1) + repl + s.slice(start - 1 + len);
+        }
+
+        // ── lookup ──
+        case 'VLOOKUP': {
+            const lookupVal = unwrapScalar(args[0]);
+            const tbl = args[1];
+            if (!tbl || !tbl.__isArray) throw new FormulaError('#VALUE! VLOOKUP needs a range');
+            const colIdx = Math.floor(safeNumOrZero(args[2]));
+            if (colIdx < 1 || colIdx > tbl.cols) throw new FormulaError('#REF! VLOOKUP col index out of range');
+            const exact = args[3] == null ? true : !(unwrapScalar(args[3]) === false || unwrapScalar(args[3]) === 0);
+            for (let r = 0; r < tbl.rows; r++) {
+                const first = tbl.values[r * tbl.cols];
+                if (equalsLoose(first, lookupVal)) return tbl.values[r * tbl.cols + (colIdx - 1)];
+                if (!exact && cmp(first, lookupVal) > 0 && r > 0) {
+                    // approximate (ascending) — previous row was the largest <= lookup
+                    return tbl.values[(r - 1) * tbl.cols + (colIdx - 1)];
+                }
+            }
+            if (!exact && tbl.rows > 0) return tbl.values[(tbl.rows - 1) * tbl.cols + (colIdx - 1)];
+            throw new FormulaError('#N/A');
+        }
+        case 'INDEX': {
+            const range = args[0];
+            if (!range || !range.__isArray) throw new FormulaError('#VALUE! INDEX needs a range');
+            const r = Math.floor(safeNumOrZero(args[1]));
+            const c = args.length > 2 && args[2] != null ? Math.floor(safeNumOrZero(args[2])) : 1;
+            if (r < 1 || r > range.rows || c < 1 || c > range.cols) throw new FormulaError('#REF! INDEX out of range');
+            return range.values[(r - 1) * range.cols + (c - 1)];
+        }
+        case 'MATCH': {
+            const lookupVal = unwrapScalar(args[0]);
+            const range = args[1];
+            if (!range || !range.__isArray) throw new FormulaError('#VALUE! MATCH needs a range');
+            const type = args.length > 2 && args[2] != null ? Math.floor(safeNumOrZero(args[2])) : 1;
+            if (type === 0) {
+                // exact
+                for (let i = 0; i < range.values.length; i++) {
+                    if (equalsLoose(range.values[i], lookupVal)) return i + 1;
+                }
+                throw new FormulaError('#N/A');
+            }
+            // type 1 (ascending, largest <= value) or -1 (descending, smallest >= value)
+            let bestIdx = -1;
+            for (let i = 0; i < range.values.length; i++) {
+                const v = range.values[i];
+                const c = cmp(v, lookupVal);
+                if (type === 1 && c <= 0) bestIdx = i;
+                else if (type === -1 && c >= 0) bestIdx = i;
+                else if (type === 1 && c > 0) break;
+            }
+            if (bestIdx < 0) throw new FormulaError('#N/A');
+            return bestIdx + 1;
+        }
+
+        // ── conditional aggregates ──
+        case 'SUMIF': {
+            const range = args[0];
+            if (!range || !range.__isArray) throw new FormulaError('#VALUE! SUMIF needs a range');
+            const crit = unwrapScalar(args[1]);
+            const sumRange = args.length > 2 && args[2] ? args[2] : range;
+            if (!sumRange.__isArray) throw new FormulaError('#VALUE! SUMIF sum_range');
+            let sum = 0;
+            for (let i = 0; i < range.values.length; i++) {
+                if (matchCriterion(range.values[i], crit)) sum += safeNumOrZero(sumRange.values[i]);
+            }
+            return sum;
+        }
+        case 'COUNTIF': {
+            const range = args[0];
+            if (!range || !range.__isArray) throw new FormulaError('#VALUE! COUNTIF needs a range');
+            const crit = unwrapScalar(args[1]);
+            let count = 0;
+            for (const v of range.values) if (matchCriterion(v, crit)) count++;
+            return count;
+        }
+        case 'AVERAGEIF': {
+            const range = args[0];
+            if (!range || !range.__isArray) throw new FormulaError('#VALUE! AVERAGEIF needs a range');
+            const crit = unwrapScalar(args[1]);
+            const avgRange = args.length > 2 && args[2] ? args[2] : range;
+            let sum = 0, count = 0;
+            for (let i = 0; i < range.values.length; i++) {
+                if (matchCriterion(range.values[i], crit)) {
+                    const n = safeNumOrNaN(avgRange.values[i]);
+                    if (!isNaN(n)) { sum += n; count++; }
+                }
+            }
+            if (!count) throw new FormulaError('#DIV/0!');
+            return sum / count;
+        }
+
+        // ── date / time ──
+        case 'TODAY': {
+            const d = new Date(); d.setHours(0, 0, 0, 0);
+            return d.getTime();
+        }
+        case 'NOW':   return Date.now();
+        case 'DATE': {
+            const y = Math.floor(safeNumOrZero(flat[0]));
+            const m = Math.floor(safeNumOrZero(flat[1]));
+            const d = Math.floor(safeNumOrZero(flat[2]));
+            return new Date(y, m - 1, d).getTime();
+        }
+        case 'YEAR':  return new Date(safeNumOrZero(flat[0])).getFullYear();
+        case 'MONTH': return new Date(safeNumOrZero(flat[0])).getMonth() + 1;
+        case 'DAY':   return new Date(safeNumOrZero(flat[0])).getDate();
     }
     throw new FormulaError('#NAME? ' + name);
+}
+
+function unwrapScalar(v) {
+    return v && v.__isArray ? v.values[0] : v;
+}
+
+// Excel-style criterion: ">100", "<=50", "<>x", or a literal value (= match).
+// Numeric compare if both sides parse as numbers; otherwise string compare.
+function matchCriterion(value, criterion) {
+    const cs = String(criterion == null ? '' : criterion);
+    const opMatch = cs.match(/^([<>]=?|<>|=)\s*(.*)$/);
+    const op = opMatch ? opMatch[1] : '=';
+    const target = opMatch ? opMatch[2] : cs;
+    const targetNum = parseFloat(target);
+    const valNum = (typeof value === 'number') ? value : parseFloat(value);
+    const isNumCmp = !isNaN(targetNum) && !isNaN(valNum);
+    const a = isNumCmp ? valNum : (value == null ? '' : String(value));
+    const b = isNumCmp ? targetNum : target;
+    switch (op) {
+        case '=':  return a === b || (isNumCmp ? a === b : String(a).toLowerCase() === String(b).toLowerCase());
+        case '<>': return !(a === b || (isNumCmp ? a === b : String(a).toLowerCase() === String(b).toLowerCase()));
+        case '<':  return a < b;
+        case '<=': return a <= b;
+        case '>':  return a > b;
+        case '>=': return a >= b;
+    }
+    return false;
 }
 
 function safeNumOrZero(v) {

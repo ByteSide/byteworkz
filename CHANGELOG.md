@@ -4,6 +4,42 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-05-15 — "Spreadsheet feature parity"
+
+The four-commit milestone (v0.1.7 → v0.1.8 → v0.1.9 → v0.2.0) closes the
+biggest correctness and feature gaps in byteSheet relative to user
+expectations from real spreadsheets.
+
+### Added — formula library expansion (17 new functions)
+
+- **Lookup**: `VLOOKUP(value, range, col_index, [exact])`, `INDEX(range, row, [col])`, `MATCH(value, range, [type])` (exact match + approximate for ascending/descending)
+- **Conditional aggregates**: `SUMIF(range, criterion, [sum_range])`, `COUNTIF(range, criterion)`, `AVERAGEIF(range, criterion, [avg_range])`. Criterion syntax: `">100"`, `"<=50"`, `"<>x"`, or a literal for equality
+- **Date / time**: `TODAY()`, `NOW()`, `DATE(y, m, d)`, `YEAR(v)`, `MONTH(v)`, `DAY(v)` (epoch-ms underlying type)
+- **Text slicing**: `LEFT`, `RIGHT`, `MID`, `FIND`, `SUBSTITUTE` (with optional nth-occurrence), `REPLACE` (Excel-style: `text, start, length, new`)
+- **Numeric**: `SIGN`, `TRUNC`
+
+### Added — cycle detection
+
+- `markCycles()` runs Tarjan's SCC algorithm on the formula dep graph after `fullRecompute` and `recomputeDependents`. Cells in non-trivial SCCs (size > 1, or single cell with self-loop) are marked `#CYCLE!`. Before this release, a cycle like `A1 = B1, B1 = A1` would silently exhaust the 30-pass-cap and leave both cells at whatever number the last pass produced.
+
+### Added — persistent filter
+
+- `sheet.filter = { col, allowed: [...] }` now persists on the sheet object. Filter survives sheet switches, structural edits (insert/delete row/col), save/load. The filter modal pre-populates checkboxes from the existing filter and offers a "Clear filter" button when one is active. "Apply all" auto-clears the filter.
+
+### Range tokens now carry 2D shape
+
+- `RANGE` evaluation produces `{__isArray:true, values, rows, cols}` so the new lookup functions can navigate 2D grids (row-major). The existing aggregate functions ignore the shape — backwards compatible.
+
+### Tests
+
+- 100/100 (was 74). New cases: 8 string-slicing, 5 numeric extras, 5 conditional-aggregate, 5 lookup, 3 date.
+
+### Known limitations remaining (deferred)
+
+- **Sort** still doesn't update formula refs in moved rows. Sort moves data faithfully, but a formula like `=A1` inside a row that gets sorted to position 5 keeps pointing at A1 instead of tracking the moved cell. Requires "rows-as-units" semantics in the sort which the current implementation doesn't model.
+- **Deleting an absolute column** (e.g. `$B$2` after delete column B) leaves the absolute ref intact rather than emitting `#REF!`. Marked in the test suite.
+- **Filter on a column that's then inserted/deleted into**: the filter's stored `col` letter stays pointing at the same column letter, which now refers to different data after the shift. Manual re-apply needed for now.
+
 ## [0.1.9] — 2026-05-15
 
 ### Fixed

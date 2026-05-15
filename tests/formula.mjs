@@ -10,8 +10,20 @@
 import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, refToString, rangeToString, shiftRef, shiftRange } from '../sheet-formula.js';
 
 const data = [
-    // Sheet 0
-    { A1: 10, A2: 20, A3: 30, B1: 5, B2: 7, B3: 'hello', C1: 'x', D1: -3 },
+    // Sheet 0 — plus a small lookup table for VLOOKUP/INDEX/MATCH:
+    //   F1=Name  G1=Age  H1=Role
+    //   F2=Alice G2=30   H2=Eng
+    //   F3=Bob   G3=25   H3=Mgr
+    //   F4=Carol G4=35   H4=Sales
+    {
+        A1: 10, A2: 20, A3: 30,
+        B1: 5,  B2: 7,  B3: 'hello',
+        C1: 'x', D1: -3,
+        F1: 'Name',  G1: 'Age', H1: 'Role',
+        F2: 'Alice', G2: 30,    H2: 'Eng',
+        F3: 'Bob',   G3: 25,    H3: 'Mgr',
+        F4: 'Carol', G4: 35,    H4: 'Sales'
+    },
     // Sheet 1 (named "Other")
     { A1: 100, A2: 200 }
 ];
@@ -91,7 +103,43 @@ const cases = [
 
     // quoted sheet names
     ["'Other'!A1", 100],
-    ["SUM('Other'!A1:A2)", 300]
+    ["SUM('Other'!A1:A2)", 300],
+
+    // ── new in v0.2.0 ── string slicing
+    ['LEFT("hello", 3)', 'hel'],
+    ['RIGHT("hello", 3)', 'llo'],
+    ['MID("hello", 2, 3)', 'ell'],
+    ['FIND("l", "hello")', 3],
+    ['FIND("l", "hello", 4)', 4],
+    ['SUBSTITUTE("aaa", "a", "b")', 'bbb'],
+    ['SUBSTITUTE("aaa", "a", "b", 2)', 'aba'],
+    ['REPLACE("hello", 2, 3, "XYZ")', 'hXYZo'],
+
+    // numeric extras
+    ['SIGN(-7)', -1],
+    ['SIGN(0)', 0],
+    ['SIGN(3.5)', 1],
+    ['TRUNC(3.9)', 3],
+    ['TRUNC(-3.9)', -3],
+
+    // conditional aggregates
+    ['SUMIF(A1:A3, ">15")', 50],     // A2=20 + A3=30
+    ['COUNTIF(A1:A3, ">15")', 2],
+    ['AVERAGEIF(A1:A3, ">15")', 25],
+    ['COUNTIF(F1:F4, "Bob")', 1],
+    ['SUMIF(G2:G4, ">=30", G2:G4)', 65],  // G2=30 + G4=35
+
+    // lookup
+    ['VLOOKUP("Bob", F1:H4, 3)', 'Mgr'],
+    ['VLOOKUP("Alice", F1:H4, 2)', 30],
+    ['INDEX(F1:H4, 3, 2)', 25],          // row 3 ("Bob"), col 2 (Age)
+    ['INDEX(A1:A3, 2)', 20],             // 1-arg INDEX on single col
+    ['MATCH("Bob", F1:F4, 0)', 3],       // exact
+
+    // dates — year/month/day extraction of a DATE construct
+    ['YEAR(DATE(2026, 5, 15))', 2026],
+    ['MONTH(DATE(2026, 5, 15))', 5],
+    ['DAY(DATE(2026, 5, 15))', 15]
 ];
 
 let pass = 0, fail = 0;

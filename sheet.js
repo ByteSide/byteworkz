@@ -314,6 +314,31 @@ function renderGrid() {
     paintAllCells();
     updateSelectionVisual();
     updateStatusBar();
+    applyFilter();
+}
+
+// Apply the active sheet's persistent filter (if any) by hiding rows whose
+// column value isn't in the allowed-set. Called after every renderGrid so
+// the filter survives sheet switches, structural edits, save/load, etc.
+function applyFilter() {
+    const sh = activeSheet();
+    if (!sh.filter) return;
+    const { col, allowed } = sh.filter;
+    const allowedSet = new Set(allowed);
+    const trs = state.gridTable.tBodies[0].rows;
+    for (let i = 0; i < trs.length; i++) {
+        const head = trs[i].querySelector('th.row-head');
+        if (!head) continue;
+        const r = parseInt(head.dataset.row, 10);
+        if (r === 1) { trs[i].style.display = ''; continue; }
+        const ref = col + r;
+        const cell = sh.cells[ref];
+        const v = cell
+            ? (cell.f != null ? state.computed.get(cellKey(state.doc.activeSheet, ref))?.value : cell.v)
+            : '';
+        const key = v == null ? '' : String(v);
+        trs[i].style.display = allowedSet.has(key) ? '' : 'none';
+    }
 }
 
 function paintAllCells() {
@@ -860,6 +885,13 @@ function recomputeDependents(sheetIdx, ref) {
         });
         passes++;
     }
+    // Detect any cycles introduced by this edit; mark cycle cells with #CYCLE!
+    markCycles();
+    affected.forEach(k => {
+        const [sIdxStr, r] = k.split('!');
+        const sIdx = parseInt(sIdxStr, 10);
+        if (sIdx === state.doc.activeSheet) paintCell(r);
+    });
     renderCharts();
 }
 function shallowEq(a, b) {
@@ -898,6 +930,58 @@ function fullRecompute() {
         });
         passes++;
     }
+    markCycles();
+}
+
+// Tarjan's SCC algorithm — finds strongly-connected components in the
+// forward dep graph. Non-trivial SCCs (size > 1, or size 1 with a self-loop)
+// are cycles. Recursive; max recursion depth is bounded by the longest
+// dependency chain, well within JS stack limits for sheets up to a few
+// thousand formula cells. Called at the end of fullRecompute /
+// recomputeDependents — any cycle-member cell's computed value is overwritten
+// with `#CYCLE!` so the user sees the error explicitly instead of a silent
+// converged-or-not result from the 30-pass loop.
+function markCycles() {
+    const indexMap = new Map();
+    const lowlink = new Map();
+    const onStack = new Set();
+    const sccStack = [];
+    let counter = 0;
+    const cycleCells = new Set();
+
+    function strongconnect(v) {
+        indexMap.set(v, counter);
+        lowlink.set(v, counter);
+        counter++;
+        sccStack.push(v);
+        onStack.add(v);
+        const deps = state.formulaDeps.get(v);
+        if (deps) {
+            for (const w of deps) {
+                if (!indexMap.has(w)) {
+                    strongconnect(w);
+                    lowlink.set(v, Math.min(lowlink.get(v), lowlink.get(w)));
+                } else if (onStack.has(w)) {
+                    lowlink.set(v, Math.min(lowlink.get(v), indexMap.get(w)));
+                }
+            }
+        }
+        if (lowlink.get(v) === indexMap.get(v)) {
+            const scc = [];
+            let w;
+            do {
+                w = sccStack.pop();
+                onStack.delete(w);
+                scc.push(w);
+            } while (w !== v);
+            const selfLoop = scc.length === 1 && (state.formulaDeps.get(scc[0])?.has(scc[0]));
+            if (scc.length > 1 || selfLoop) scc.forEach(c => cycleCells.add(c));
+        }
+    }
+    for (const v of state.formulaDeps.keys()) {
+        if (!indexMap.has(v)) strongconnect(v);
+    }
+    cycleCells.forEach(k => state.computed.set(k, { value: '#CYCLE!', error: '#CYCLE!' }));
 }
 
 /* ---------------- Formatting ---------------- */
@@ -1247,8 +1331,7 @@ function cmpVal(a, b) {
 function showFilterPopover() {
     const [c] = splitRef(state.activeRef);
     const sh = activeSheet();
-    const cn = colToNum(c);
-    // gather distinct values in this column (rows 2..rows)
+    // Gather distinct values in this column (rows 2..rows = data, row 1 = header).
     const distinct = new Map();
     for (let r = 2; r <= sh.rows; r++) {
         const ref = c + r;
@@ -1259,47 +1342,48 @@ function showFilterPopover() {
         distinct.get(key).push(r);
     }
     if (distinct.size === 0) { toast('No data to filter.', { kind: 'error' }); return; }
+
+    // Pre-populate based on existing filter (if it's for the same column).
+    const activeFilterOnThisCol = sh.filter && sh.filter.col === c ? new Set(sh.filter.allowed) : null;
     let html = '';
     Array.from(distinct.keys()).sort().forEach(k => {
-        html += `<label><input type="checkbox" checked value="${escapeHtml(k)}"> ${escapeHtml(k || '(empty)')}</label>`;
+        const checked = activeFilterOnThisCol ? activeFilterOnThisCol.has(k) : true;
+        html += `<label><input type="checkbox" ${checked ? 'checked' : ''} value="${escapeHtml(k)}"> ${escapeHtml(k || '(empty)')}</label>`;
     });
     html += `<div class="filter-actions">
         <button class="btn-secondary" data-act="all">All</button>
         <button class="btn-secondary" data-act="none">None</button>
     </div>`;
+
+    const actions = [{ label: 'Cancel', kind: 'secondary' }];
+    if (sh.filter) {
+        actions.push({ label: 'Clear filter', kind: 'secondary', onClick: (close) => {
+            delete sh.filter;
+            renderGrid();
+            markDirty();
+            toast('Filter cleared.', { kind: 'ok' });
+            close();
+        }});
+    }
+    actions.push({ label: 'Apply', kind: 'primary', onClick: (close) => {
+        const allowed = [];
+        document.querySelectorAll('#fp-list label input[type="checkbox"]:checked').forEach(cb => allowed.push(cb.value));
+        if (allowed.length === distinct.size) {
+            // All checked = effectively no filter
+            delete sh.filter;
+        } else {
+            sh.filter = { col: c, allowed };
+        }
+        renderGrid();
+        markDirty();
+        close();
+        toast(sh.filter ? `Filter on ${c} applied.` : 'Filter cleared.', { kind: 'ok' });
+    }});
+
     showModal({
         title: `Filter column ${c}`,
         bodyHTML: `<div class="filter-popover" id="fp-list">${html}</div>`,
-        actions: [
-            { label: 'Cancel', kind: 'secondary' },
-            { label: 'Apply', kind: 'primary', onClick: (close) => {
-                const checked = new Set();
-                document.querySelectorAll('#fp-list label input[type="checkbox"]:checked').forEach(cb => checked.add(cb.value));
-                distinct.forEach((rows, val) => {
-                    if (!checked.has(val)) {
-                        rows.forEach(r => {
-                            const tr = state.gridTable.querySelector(`tr:has(td[data-ref="A${r}"])`);
-                            // Fallback if :has not supported
-                            const trs = state.gridTable.tBodies[0].rows;
-                            for (let i = 0; i < trs.length; i++) {
-                                const head = trs[i].querySelector('th.row-head');
-                                if (head && parseInt(head.dataset.row, 10) === r) { trs[i].style.display = 'none'; break; }
-                            }
-                        });
-                    } else {
-                        rows.forEach(r => {
-                            const trs = state.gridTable.tBodies[0].rows;
-                            for (let i = 0; i < trs.length; i++) {
-                                const head = trs[i].querySelector('th.row-head');
-                                if (head && parseInt(head.dataset.row, 10) === r) { trs[i].style.display = ''; break; }
-                            }
-                        });
-                    }
-                });
-                close();
-                toast('Filter applied. (View-only — clear by re-rendering.)', { kind: 'ok' });
-            } }
-        ],
+        actions,
         onMount: (m) => {
             m.querySelector('[data-act="all"]').addEventListener('click', () =>
                 m.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true));
