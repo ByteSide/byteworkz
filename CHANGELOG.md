@@ -4,6 +4,17 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.9] — 2026-05-15
+
+### Fixed
+
+- **Renaming a sheet now updates every cross-sheet reference** in every formula across the whole document. Before this release, renaming `Sheet1` → `Q1` left `=Sheet1!A1` literally as-is, so every dependent cell broke silently. Now: walks all sheets, all formula cells, rewrites refs that targeted the renamed sheet to use the new name (quoted with `'…'` and `''`-escaped if the new name has spaces, special chars, or apostrophes — Excel-style).
+- **Duplicate / empty sheet-name protection.** Trying to rename a sheet to an existing sibling's name (or to an empty/whitespace-only name) now toasts an error and aborts; the previous version silently accepted the rename and left a confusing duplicate or blank-named tab.
+
+### Tests
+
+- 74/74 (was 66). New: 8 sheet-rename scenarios — straight rename, multiple refs to same sheet, new name needing quoting, renaming a quoted name, apostrophe-in-name producing `''` escape, ranges, absolute markers preserved through rename, and only-matching-sheet specificity (an `OtherSheet!B2` stays untouched when renaming `Sheet1`).
+
 ## [0.1.8] — 2026-05-15
 
 ### Fixed (the big silent-correctness bug)

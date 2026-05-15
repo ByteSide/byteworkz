@@ -25,7 +25,7 @@ import {
     showContextMenu, closeContextMenu,
     escapeHtml, uid, debounce
 } from './ui.js';
-import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, shiftRef, shiftRange } from './sheet-formula.js';
+import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, refToString, rangeToString, shiftRef, shiftRange } from './sheet-formula.js';
 
 // Siehe Kommentar in doc.js — Registry-Bootstrap idempotent in jedem App-Modul.
 window.ByteWorkz = window.ByteWorkz || { apps: [] };
@@ -1040,6 +1040,42 @@ async function doPaste() {
 // got deleted" — which becomes a literal "#REF!" in the formula text (the
 // tokenizer rejects '#', so the evaluator surfaces the error on next eval).
 // Absolute refs ($A / A$1 / $A$1) are left untouched. This matches Excel.
+// Rename a sheet AND rewrite every cross-sheet reference in every formula
+// cell so refs that previously named the old name now name the new name
+// (quoted if the new name has spaces / special chars — refToString /
+// rangeToString handle that). Returns false on validation failure (empty
+// name or collision); otherwise true after the rename + recompute.
+function renameSheet(idx, newName) {
+    newName = (newName || '').trim();
+    const old = state.doc.sheets[idx].name;
+    if (!newName)         { toast('Sheet name cannot be empty.', { kind: 'error' }); return false; }
+    if (newName === old)  return false;
+    if (state.doc.sheets.some((s, i) => i !== idx && s.name === newName)) {
+        toast(`Sheet "${newName}" already exists.`, { kind: 'error' });
+        return false;
+    }
+    state.doc.sheets[idx].name = newName;
+    state.doc.sheets.forEach(sh => {
+        Object.values(sh.cells).forEach(cell => {
+            if (cell.f == null) return;
+            cell.f = rewriteFormula(cell.f, tk => {
+                if (tk.sheet !== old) return null;
+                if (tk.type === 'REF') {
+                    return refToString({ col: tk.col, colAbs: tk.colAbs, row: tk.row, rowAbs: tk.rowAbs, sheet: newName });
+                }
+                if (tk.type === 'RANGE') {
+                    return rangeToString(tk.startCell, tk.endCell, newName);
+                }
+                return null;
+            });
+        });
+    });
+    fullRecompute();
+    renderSheetTabs();
+    markDirty();
+    return true;
+}
+
 function shiftAllFormulaRefs({ rowOp, colOp, modifiedSheetIdx }) {
     const modifiedSheetName = state.doc.sheets[modifiedSheetIdx].name;
     state.doc.sheets.forEach((sh, sIdx) => {
@@ -1284,19 +1320,14 @@ function renderSheetTabs() {
         t.addEventListener('click', () => switchToSheet(idx));
         t.addEventListener('dblclick', async () => {
             const newName = await prompt({ title: 'Rename sheet', label: 'New name', initial: s.name });
-            if (newName && newName !== s.name) {
-                // Update references in other sheets? — keep simple, only rename label.
-                s.name = newName;
-                renderSheetTabs();
-                markDirty();
-            }
+            if (newName) renameSheet(idx, newName);
         });
         t.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             showContextMenu(e.clientX, e.clientY, [
                 { label: 'Rename…', onClick: async () => {
                     const n = await prompt({ title: 'Rename sheet', label: 'New name', initial: s.name });
-                    if (n) { s.name = n; renderSheetTabs(); markDirty(); }
+                    if (n) renameSheet(idx, n);
                 } },
                 { label: 'Duplicate', onClick: () => {
                     const copy = JSON.parse(JSON.stringify(s));

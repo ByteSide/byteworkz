@@ -205,5 +205,34 @@ for (const [formula, { rowOp, colOp }, expected] of shiftCases) {
     else { fail++; console.log(`shift FAIL: ${formula}  →  got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`); }
 }
 
+// ── Sheet-rename: rewrite cross-sheet refs ────────────────────────────────
+function applyRename(formula, oldName, newName) {
+    return rewriteFormula(formula, tk => {
+        if (tk.sheet !== oldName) return null;
+        if (tk.type === 'REF') {
+            return refToString({ col: tk.col, colAbs: tk.colAbs, row: tk.row, rowAbs: tk.rowAbs, sheet: newName });
+        }
+        if (tk.type === 'RANGE') {
+            return rangeToString(tk.startCell, tk.endCell, newName);
+        }
+        return null;
+    });
+}
+const renameCases = [
+    ['Sheet1!A1+B2',          'Sheet1', 'Sheet2', 'Sheet2!A1+B2'],
+    ['Sheet1!A1+Sheet1!B2',   'Sheet1', 'Q1',     'Q1!A1+Q1!B2'],
+    ['Sheet1!A1',             'Sheet1', 'Q1 Sales', "'Q1 Sales'!A1"],     // new name needs quoting
+    ["'Old Name'!A1",         'Old Name', 'NewName', 'NewName!A1'],
+    ["'Old Name'!A1",         'Old Name', "Other's", "'Other''s'!A1"],   // apostrophe in name → '' escape
+    ['SUM(Sheet1!A1:B5)',     'Sheet1', 'Q1', 'SUM(Q1!A1:B5)'],
+    ['SUM(Sheet1!$A$1:$B$5)', 'Sheet1', 'Q1', 'SUM(Q1!$A$1:$B$5)'],       // abs markers preserved
+    ['Sheet1!A1+OtherSheet!B2', 'Sheet1', 'Q1', 'Q1!A1+OtherSheet!B2']    // only matching sheet renames
+];
+for (const [formula, oldN, newN, expected] of renameCases) {
+    const got = applyRename(formula, oldN, newN);
+    if (got === expected) { pass++; }
+    else { fail++; console.log(`rename FAIL: ${formula} (${oldN}→${newN})  →  got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`); }
+}
+
 console.log(`\n${pass}/${pass+fail} passed`);
 process.exit(fail === 0 ? 0 : 1);
