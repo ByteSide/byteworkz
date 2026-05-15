@@ -610,6 +610,36 @@ button { font: inherit; color: inherit; }
 }
 .toast[data-kind="error"] { border-left-color: var(--danger); }
 .toast[data-kind="ok"]    { border-left-color: var(--ok); }
+
+/* The "new version available" toast is sticky (no auto-dismiss) and shows an
+ * inline Reload button. Stacks the reload action to the right of the message.
+ * Keep this distinct from regular toasts so they layout differently. */
+.toast.toast-update {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    border-left-color: var(--accent);
+    padding-right: 10px;
+}
+.toast.toast-update .toast-reload-btn {
+    height: 26px;
+    padding: 0 12px;
+    font-size: 12px;
+}
+
+/* About modal install section — extra accent on the install card to draw
+ * the eye when the user opens About and the PWA is installable. */
+.about-section.about-install {
+    background: linear-gradient(155deg, rgba(253, 125, 0, 0.10), rgba(253, 125, 0, 0.02));
+    border: 1px solid rgba(253, 125, 0, 0.25);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-top: 14px;
+}
+.about-section.about-install h3 {
+    color: var(--accent);
+    margin: 0 0 6px;
+}
 @keyframes toast-in {
     from { opacity: 0; transform: translateY(10px) scale(0.96); }
     to   { opacity: 1; transform: translateY(0) scale(1); }

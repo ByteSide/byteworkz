@@ -4,6 +4,36 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] — 2026-05-15 — "PWA: offline + installable"
+
+byteworkz is now an installable, offline-capable PWA. No accounts, no cloud
+— the existing "lives in your browser" promise now extends to "lives on
+your device" with full offline support after first load.
+
+### Added
+
+- **Service worker** (`sw.js`). Precaches the entire app shell on first install (16 files: HTML, all JS modules, all CSS, manifest, favicon, version.json, legal pages, lang script). After install:
+  - **`/version.json`** → network-first (so update detection sees the real current version)
+  - **Everything else** → stale-while-revalidate (instant cache hit, background refresh, cache fallback when offline)
+- **Update-available toast**. When a new SW version is installed in the background, a sticky toast appears with a "Reload" button. Click → page posts `SKIP_WAITING` to the waiting SW → SW activates → page reloads into the fresh shell. No mystery cache-invalidation bugs; the user is always in control of the upgrade moment.
+- **Install button in About modal**. Captures `beforeinstallprompt` and surfaces an explicit "Install byteworkz" action with an accent-tinted callout card. The browser's default install UI also still works (address-bar icon on Chromium, "Add to Home Screen" on iOS). Section only appears when the browser deems the app installable.
+- **iOS PWA hooks** in index.html: `apple-mobile-web-app-capable`, status-bar-style, `apple-touch-icon` pointing at favicon.svg. iOS 16+ accepts SVG icons; earlier iOS falls back to a page screenshot but install still works.
+
+### Update strategy
+
+The SW deliberately does NOT `skipWaiting()` on its own. Doing so would risk a running page (with old JS bundles) suddenly seeing new cached chunks mid-session — the kind of "PWA cache hell" everybody complains about. Instead:
+
+1. Browser detects sw.js source change → installs new SW → enters `waiting`.
+2. Page's `updatefound` listener catches the state transition to `installed` (and verifies a `controller` exists, so we don't show this on first-ever visit).
+3. Toast appears: "New version available — Reload".
+4. User clicks Reload → page sends `SKIP_WAITING` postMessage → SW activates → `controllerchange` listener fires → `location.reload()` lands the user on the new shell.
+
+This makes upgrades explicit and predictable. The `VERSION` constant in sw.js doubles as a cache-bust key — bumping it forces all clients to drop the old `byteworkz-shell-v0.x.x` cache and rebuild.
+
+### Tests
+
+- 107/107 unchanged.
+
 ## [0.3.3] — 2026-05-15 — "audit pass 4"
 
 Fourth deep audit pass. Found one real data-loss bug, two correctness

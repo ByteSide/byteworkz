@@ -1,6 +1,6 @@
 {
-  "version": "0.3.3",
+  "version": "0.3.4",
   "date": "2026-05-15",
-  "build": "audit-pass-4",
+  "build": "pwa",
   "apps": ["byteDoc", "byteSheet"]
 }

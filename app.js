@@ -99,10 +99,87 @@ window.addEventListener('DOMContentLoaded', () => {
     }).catch(() => {});
     const aboutBtn = document.getElementById('topbar-about');
     if (aboutBtn) aboutBtn.addEventListener('click', openAboutModal);
+    registerServiceWorker();
+    bindInstallPrompt();
 });
+
+/* ---------------- PWA: service worker + install prompt ---------------- */
+
+// Register the SW. On `updatefound` we attach to the installing worker and
+// wait for its `statechange` to `installed`. If there's a controller already
+// (i.e., this isn't the first install), surface a "new version" toast that
+// the user can click to reload into the new shell. Without the controller
+// check we'd toast on every first-ever visit, which is noise.
+function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+        reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                    showUpdateToast(nw);
+                }
+            });
+        });
+    }).catch((err) => {
+        // SW unavailable / blocked / file-protocol — site still works
+        // without offline support. Log for debugging but don't surface.
+        console.warn('byteworkz SW registration failed:', err);
+    });
+}
+
+function showUpdateToast(worker) {
+    const host = document.getElementById('toast-host');
+    if (!host) return;
+    const el = document.createElement('div');
+    el.className = 'toast toast-update';
+    el.dataset.kind = 'info';
+    el.style.pointerEvents = 'auto';
+    el.innerHTML = `
+        <span>New version available.</span>
+        <button class="btn-primary toast-reload-btn" type="button">Reload</button>
+    `;
+    el.querySelector('.toast-reload-btn').addEventListener('click', () => {
+        // Tell the waiting SW to take over, then reload once it's the new
+        // controller. The controllerchange listener catches the transition
+        // — without it, the reload could race the activation and the new
+        // assets would only land on the next reload after that.
+        worker.postMessage({ type: 'SKIP_WAITING' });
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            location.reload();
+        }, { once: true });
+    });
+    host.appendChild(el);
+}
+
+// Capture the browser's `beforeinstallprompt` so we can offer install from
+// our About modal instead of relying on the browser's default UI (which
+// some browsers hide). Only fires on Chromium-based browsers; Safari /
+// Firefox handle install differently or not at all — the about modal just
+// won't show the button in that case.
+let _installPrompt = null;
+function bindInstallPrompt() {
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        _installPrompt = e;
+    });
+    window.addEventListener('appinstalled', () => {
+        _installPrompt = null;
+    });
+}
+
+export function installApp() {
+    if (!_installPrompt) return false;
+    _installPrompt.prompt();
+    _installPrompt.userChoice.finally(() => { _installPrompt = null; });
+    return true;
+}
+export function canInstall() { return !!_installPrompt; }
 
 function openAboutModal() {
     const v = topbarVersion ? topbarVersion.textContent : '';
+    const installable = canInstall();
     showModal({
         title: 'About byteworkz',
         bodyHTML: `
@@ -150,6 +227,15 @@ function openAboutModal() {
                 </div>
             </div>
 
+            ${installable ? `
+            <div class="about-section about-install">
+                <h3>Install as app</h3>
+                <p style="margin:0 0 10px;font-size:13px;color:var(--fg-muted);">
+                    Run byteworkz as a standalone app — separate window, no browser chrome, works offline. Documents stay on this device just like in the browser.
+                </p>
+                <button class="btn-primary" id="about-install-btn" type="button">Install byteworkz</button>
+            </div>` : ''}
+
             <div class="about-section">
                 <h3>Privacy in one sentence</h3>
                 <p style="margin:0;font-size:13px;color:var(--fg-muted);">
@@ -159,7 +245,13 @@ function openAboutModal() {
         `,
         actions: [
             { label: 'Close', kind: 'primary' }
-        ]
+        ],
+        onMount: (modal, close) => {
+            const btn = modal.querySelector('#about-install-btn');
+            if (btn) btn.addEventListener('click', () => {
+                if (installApp()) close();
+            });
+        }
     });
 }
 
