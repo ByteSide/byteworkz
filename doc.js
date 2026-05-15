@@ -61,6 +61,18 @@ function newDoc(title = 'Untitled') {
     };
 }
 
+// Persist an in-memory doc to localStorage in the canonical on-disk shape.
+// Needed by every new-doc code path: without an immediate save, refresh on
+// the canonical URL (#/doc/<id>) yields "Document not found".
+function persistDoc(d) {
+    return docs.save({
+        app: APP_MIME, version: APP_VERSION,
+        id: d.id, title: d.title,
+        createdAt: d.createdAt, updatedAt: d.updatedAt,
+        html: d.html
+    });
+}
+
 function findOpen(id) { return state.openDocs.find(d => d.id === id) || null; }
 function active() { return findOpen(state.activeId); }
 
@@ -90,11 +102,14 @@ function mount(container, params) {
         }
         setActive(id);
     } else {
-        // New empty doc
+        // New empty doc — persist immediately so refresh works AND so the
+        // canonical-URL-normalisation below doesn't kick off a second mount
+        // that would race the in-memory state.
         const d = newDoc();
         state.openDocs.push(d);
+        persistDoc(d);
         setActive(d.id);
-        location.replace('#/doc/' + d.id);
+        history.replaceState(null, '', '#/doc/' + d.id);
     }
 
     renderTabs();
@@ -285,9 +300,10 @@ function renderTabs() {
     add.addEventListener('click', () => {
         const d = newDoc();
         state.openDocs.push(d);
+        persistDoc(d);
         setActive(d.id);
         renderTabs();
-        location.replace('#/doc/' + d.id);
+        history.replaceState(null, '', '#/doc/' + d.id);
     });
     tabsEl.appendChild(add);
 }
@@ -808,11 +824,11 @@ async function doOpen() {
     j.id = id;
     j.updatedAt = nowIso();
     docs.save(j);
-    // Open in new tab
+    // Open in new tab — docs.save above already persisted; just normalise URL
     const d = { ...j, dirty: false };
     state.openDocs.push(d);
     setActive(d.id);
-    location.replace('#/doc/' + d.id);
+    history.replaceState(null, '', '#/doc/' + d.id);
 }
 
 function doExportHtml() {

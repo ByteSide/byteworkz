@@ -4,6 +4,13 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] — 2026-05-15
+
+### Fixed
+- **Critical:** clicking the byteSheet hub tile (or "+ New byteSheet" button) showed "Sheet not found" instead of opening a fresh sheet. Root cause: `mount()` created a new doc in RAM, called `location.replace('#/sheet/<id>')` which fired an async `hashchange`, and the second `mount()` invocation looked the doc up in localStorage — where it wasn't yet saved — and aborted with the error. Fix: persist the new doc immediately on creation, and use `history.replaceState` for URL normalisation (silent, no second mount).
+- Same fix applied symmetrically to byteDoc, which previously survived the click path thanks to its in-memory `openDocs` cache but broke on **page refresh** of `#/doc/<id>` for an unsaved new doc. Now refresh works in both apps.
+- byteDoc's `newDoc()` returns an internal shape; added `persistDoc(d)` helper that wraps it in the on-disk persistence shape (`{app, version, …}`) so loaded docs round-trip correctly.
+
 ## [0.1.3] — 2026-05-15
 
 ### Added

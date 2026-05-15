@@ -103,8 +103,11 @@ function mount(container, params) {
         state.doc = ensureShape(stored);
     } else {
         state.doc = newDoc();
-        // Replace URL to canonical
-        location.replace('#/sheet/' + state.doc.id);
+        // Persist immediately so refresh on the canonical URL works AND the
+        // synchronous-feeling history.replaceState (silent, no hashchange)
+        // doesn't kick off a second mount that would race the in-memory state.
+        docs.save(state.doc);
+        history.replaceState(null, '', '#/sheet/' + state.doc.id);
     }
 
     state.activeRef = 'A1';

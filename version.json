@@ -1,6 +1,6 @@
 {
-  "version": "0.1.3",
+  "version": "0.1.4",
   "date": "2026-05-15",
-  "build": "consolidation-tests-templates",
+  "build": "fix-new-doc-race",
   "apps": ["byteDoc", "byteSheet"]
 }
