@@ -4,6 +4,69 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-05-15 — "visual polish"
+
+Top-to-bottom design refresh, voidcore-aligned. No functional changes —
+this release is pure aesthetics. Same JS, same persistence, same
+feature set. CSS-only.
+
+### Hub
+
+- **Wallpaper background**: two radial gradients (orange top-left, teal bottom-right) layered over a faint 40×40px grid masked with a radial fade. Mirrors the voidcore desktop feel adapted for a single-page app.
+- **Wordmark redesigned**: 56px ultra-thin (font-weight 200), -0.04em letter-spacing, accent-coloured first letter with a halo glow.
+- **Tiles relifted**: gradient surfaces (`linear-gradient(155deg, …)`), multi-layer drop shadows, hover halo (radial gradient on top edge fades in), translate-Y lift, icon scale + glow. Active state has a press-down tactile feel.
+- **Recent rows**: hover slides right 2px, delete button only appears on hover (reduces visual noise at rest), badge is now a pill with monospace caps.
+- **Section title accent**: `// Recent` prefix in monospace, accent-coloured — picks up the voidcore comment-style typography motif.
+
+### Topbar
+
+- **Glassmorphic** (`backdrop-filter: blur(14px) saturate(140%)`) with feature-detect fallback to solid surface.
+- Brand mark gets a `drop-shadow(0 0 8px accent-glow)` filter.
+- Version chip is now a pill with mono font on dark background instead of bare text.
+
+### Buttons
+
+- Bigger radius (`--radius: 4px → 8px`, `--radius-lg: 8px → 14px`).
+- Primary button: vertical gradient (`--accent-2 → --accent`), inset highlight, expanding glow on hover, press-down on active.
+- Icon buttons: transparent at rest, subtle bg on hover (less visual chrome by default).
+- Disabled state explicitly cancels hover transforms.
+
+### Doc editor
+
+- **Paper feel**: editor card now sits on a slightly-radial background, has 80px horizontal padding, larger radius (14px), multi-layer shadow, top inner highlight stroke.
+- **Typography**: body 15.5px / 1.72 line-height (was 15 / 1.65). Headings get tighter letter-spacing.
+- **Links**: underlined with 40% accent decoration; goes to full accent on hover.
+- **List markers**: orange (`li::marker`).
+- **Blockquote**: subtle orange-tinted background + rounded right corner.
+- **Images**: drop-shadow at rest, accent-glow when selected.
+- **Tables**: gradient header background, rounded corners (overflow hidden so cells fit the radius).
+- **Find bar**: slides in from top, focus state gets a 3px outer ring in accent-dim.
+- **Find highlights**: 1px accent-tinted box-shadow ring; active match glows.
+
+### Sheet grid
+
+- **Headers**: vertical gradient, accent-coloured on hover; row-head + col-head get a stronger border on the body-facing edge.
+- **Formula bar**: cell-ref label in accent colour and bold mono; input gets a 3px accent-dim focus ring.
+- **Active cell**: outline + inset accent-dim glow.
+- **Cell editor**: inset orange glow while editing.
+- **Sheet tabs**: active tab gets a top accent bar with bottom glow (mirrors doc-tabs treatment).
+- **Charts**: gradient header bar, stronger drop shadow.
+- **Filter popover**: glassmorphic.
+
+### Motion
+
+- New motion tokens (`--t-fast: 120ms`, `--t-norm: 200ms`, `--t-soft: 280ms cubic-bezier(0.2, 0.8, 0.2, 1)`).
+- View transitions: 220ms fade + 4px translate-up.
+- Modal: scale(0.94)+8px-down → identity, 220ms, soft cubic-bezier. Backdrop blurs in over 180ms.
+- Toast: 10px lift + scale(0.96) → identity.
+- Context menu: drops in with subtle scale.
+- `@media (prefers-reduced-motion)` zeroes all animations + transitions globally.
+
+### Scrollbars
+
+- Webkit: 10px wide, 6px-radius accent-on-hover thumb on transparent track, padding inset of 2px so the thumb looks floating.
+- Firefox: `scrollbar-width: thin; scrollbar-color: border-strong transparent`.
+
 ## [0.2.4] — 2026-05-15 — "audit pass 2"
 
 Second `/byteside:debug-web-loop` pass, deeper into the formula engine
