@@ -287,6 +287,11 @@ function unmount() {
     topbar.clearCenter();
     document.removeEventListener('keydown', onGlobalKey, true);
     state.mounted = false;
+    // Clear activeId so that the next mount of any doc (including this same
+    // one) properly populates the freshly-rebuilt editor. Without this, the
+    // setActive early-return added above would short-circuit on remount and
+    // leave the editor empty.
+    state.activeId = null;
     clearImgSelection();
     if (state.container) state.container.innerHTML = '';
     closeContextMenu();
@@ -493,6 +498,12 @@ function renderTabs() {
 }
 
 function setActive(id) {
+    // Idempotent: clicking the already-active tab is a no-op. Critical to
+    // early-return here — without it, re-running the body would reset
+    // editor.innerHTML from d.html, which only catches up to the editor
+    // every 900ms via the debounced save. Anything typed in the last
+    // 900ms would be lost on a same-tab click.
+    if (state.activeId === id) return;
     // Save current first — capture editor html AND flush pending debounced save
     // so the outgoing tab's edits hit localStorage before we switch context.
     // Without the flush, the debounced save would fire later and operate on

@@ -82,6 +82,29 @@ function newSheet(name) {
 }
 function activeSheet() { return state.doc.sheets[state.doc.activeSheet]; }
 
+// Pick the lowest 'SheetN' name that isn't already taken. Naive `Sheet${len+1}`
+// collides after the user has deleted a middle sheet — e.g. starting with
+// [Sheet1, Sheet2, Sheet3], delete Sheet2 → length 2, next would be "Sheet3"
+// which already exists. Formula cross-sheet refs match by name and findIndex
+// returns the first match — so a name collision silently corrupts every
+// formula targeting the duplicated name.
+function nextSheetName() {
+    let n = state.doc.sheets.length + 1;
+    while (state.doc.sheets.some(s => s.name === `Sheet${n}`)) n++;
+    return `Sheet${n}`;
+}
+// Pick a "(copy)" name that doesn't collide. Same correctness reasoning as
+// nextSheetName — duplicating "Sheet1" twice would otherwise produce two
+// sheets both named "Sheet1 (copy)".
+function uniqueCopyName(baseName) {
+    let candidate = `${baseName} (copy)`;
+    let n = 2;
+    while (state.doc.sheets.some(s => s.name === candidate)) {
+        candidate = `${baseName} (copy ${n++})`;
+    }
+    return candidate;
+}
+
 /* ---------------- Mount / Unmount ---------------- */
 
 function mount(container, params) {
@@ -1179,12 +1202,17 @@ function renameSheet(idx, newName) {
 // Returns true if the chart should survive, false if it should be removed.
 function shiftChartRange(chart, rowOp, colOp) {
     const shiftOne = (refStr) => {
-        const [c, r] = splitRef(refStr);
-        const cn = colToNum(c);
-        const newCn = colOp ? colOp(cn) : cn;
-        const newR  = rowOp ? rowOp(r)  : r;
-        if (newCn === null || newR === null) return null;
-        return numToCol(newCn) + newR;
+        // Tampered JSON / format-migration debris could leave malformed ref
+        // strings here; splitRef throws #REF! on those. Catch so one bad
+        // chart can't break the entire structural-edit operation.
+        try {
+            const [c, r] = splitRef(refStr);
+            const cn = colToNum(c);
+            const newCn = colOp ? colOp(cn) : cn;
+            const newR  = rowOp ? rowOp(r)  : r;
+            if (newCn === null || newR === null) return null;
+            return numToCol(newCn) + newR;
+        } catch { return null; }
     };
     const newStart = shiftOne(chart.range.start);
     const newEnd = shiftOne(chart.range.end);
@@ -1499,7 +1527,7 @@ function renderSheetTabs() {
                 } },
                 { label: 'Duplicate', onClick: () => {
                     const copy = JSON.parse(JSON.stringify(s));
-                    copy.name = s.name + ' (copy)';
+                    copy.name = uniqueCopyName(s.name);
                     // Chart.range.sheet stores a sheet INDEX (not name). After
                     // splice(idx+1, 0, copy), every sheet at original position
                     // >= idx+1 shifts up by 1. Walk all existing charts and
@@ -1559,8 +1587,7 @@ function renderSheetTabs() {
     add.textContent = '+';
     add.title = 'New sheet';
     add.addEventListener('click', () => {
-        const n = `Sheet${state.doc.sheets.length + 1}`;
-        state.doc.sheets.push(newSheet(n));
+        state.doc.sheets.push(newSheet(nextSheetName()));
         state.doc.activeSheet = state.doc.sheets.length - 1;
         renderGrid(); renderSheetTabs(); renderCharts();
         markDirty();
@@ -1585,6 +1612,14 @@ async function insertChartDialog() {
     const b = selectionBounds();
     if (b.c1 === b.c2 && b.r1 === b.r2) {
         toast('Select a range first.', { kind: 'error' });
+        return;
+    }
+    // Single-column selection: chart format reserves col 1 for labels and
+    // cols 2+ for data series — a single column has labels only, no data,
+    // and the chart renders "(no numeric data)". Catch early with a useful
+    // message rather than letting the user click Insert and get a blank.
+    if (b.c1 === b.c2) {
+        toast('Select at least 2 columns: labels + data.', { kind: 'error' });
         return;
     }
     let kind = 'bar', title = '';

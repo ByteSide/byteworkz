@@ -4,6 +4,37 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] — 2026-05-15 — "audit pass 4"
+
+Fourth deep audit pass. Found one real data-loss bug, two correctness
+bugs around sheet naming, plus two defensive fixes.
+
+### Fixed (WICHTIG — data loss)
+
+- **byteDoc: clicking the already-active tab clobbered unflushed edits.** The setActive(id) path always re-populated `editor.innerHTML` from `d.html` — but `d.html` only catches up to the live editor on the 900ms debounced save. Click your active tab within 900ms of the last keystroke and the just-typed text was reset to the last saved version. Fixed via idempotent early return when `state.activeId === id`. Paired with: `unmount()` now clears `state.activeId` so that a fresh mount after navigation-away (where the editor element was destroyed) still populates correctly.
+
+### Fixed (WICHTIG — silent data corruption)
+
+- **byteSheet: + button could collide with existing sheet names.** Naive `Sheet${len+1}` collides after the user deletes a middle sheet — e.g., `[Sheet1, Sheet2, Sheet3]` → delete Sheet2 → `[Sheet1, Sheet3]` (length 2) → next was "Sheet3" which already existed. Formula cross-sheet refs match by name and `findIndex` returns the first hit, so a name collision silently corrupted every formula targeting the duplicated name. Now `nextSheetName()` scans for the lowest unused `SheetN`.
+- **byteSheet: Duplicate didn't check name collision.** Duplicating "Sheet1" twice produced two sheets both named "Sheet1 (copy)" — same `findIndex` corruption as above. Now `uniqueCopyName(base)` appends ` (copy 2)`, ` (copy 3)`, etc. as needed.
+
+### Fixed (defensive)
+
+- **`shiftChartRange` now try/catches malformed ref strings.** `splitRef` throws `#REF!` on a string that doesn't match `^[A-Z]{1,3}\d{1,5}$` — could happen via JSON tamper or format-migration debris. Without the catch, one bad chart blew up the entire row/col insert/delete operation. Catch + return null → the bad chart gets dropped, rest of the operation proceeds.
+- **byteSheet: better error before opening chart dialog with single-column selection.** Chart format reserves col 1 for labels and cols 2+ for data — a single-column range renders "(no numeric data)" silently after the user goes through the modal. Now caught up-front with "Select at least 2 columns: labels + data."
+
+### Audited but left as-is
+
+- **Multi-tab cross-edit race** — known v1 limitation, deferred.
+- **Sheet name case sensitivity** — `Sheet1` and `sheet1` are distinct in our model (Excel treats them as one). Would require non-trivial migration of existing docs. Deferred.
+- **Image paste from clipboard** — feature gap, not a bug. Use the image toolbar button. Deferred.
+- **Performance: querySelector storm on huge drag-selects** — selecting full grid fires ~252 querySelectors per mousemove. Real-world fine; would need a header/cell Map cache to amortize. Deferred.
+- **Sort with no header row** — currently hardcoded `firstDataRow = 2`. UX limitation. Deferred.
+
+### Tests
+
+- 107/107 unchanged. The new code paths need a full DOM smoke-test which lives outside the formula unit-test suite.
+
 ## [0.3.2] — 2026-05-15 — "audit pass 3 — structural-edit integrity"
 
 Third deep audit pass turned up five real correctness bugs in
