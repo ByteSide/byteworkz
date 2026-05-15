@@ -139,7 +139,13 @@ const cases = [
     // dates — year/month/day extraction of a DATE construct
     ['YEAR(DATE(2026, 5, 15))', 2026],
     ['MONTH(DATE(2026, 5, 15))', 5],
-    ['DAY(DATE(2026, 5, 15))', 15]
+    ['DAY(DATE(2026, 5, 15))', 15],
+
+    // tokenizer fault paths — these MUST surface an #ERROR! rather than
+    // silently producing a value. Previously, "abc with no closing quote
+    // produced a successful STR token and silently dropped trailing source.
+    ['CONCAT("abc, 1)', '#ERROR! unterminated string'],
+    ['"unterminated', '#ERROR! unterminated string']
 ];
 
 let pass = 0, fail = 0;

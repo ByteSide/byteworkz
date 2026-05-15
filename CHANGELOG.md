@@ -4,6 +4,22 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] — 2026-05-15 — "audit pass 2"
+
+Second `/byteside:debug-web-loop` pass, deeper into the formula engine
+and storage layer. Three small defensive fixes — no user-visible
+behaviour changes except correct error reporting on malformed formulas.
+
+### Fixed (MINOR)
+
+- **Tokenizer silently truncated unterminated string literals.** `="abc` with no closing `"` produced a successful STR token (value `"abc"`) and trailing source content vanished. Now throws `#ERROR! unterminated string`, matching Excel. Two new test cases lock the behaviour down.
+- **`colToNum` defensively uppercases input.** The function is exported; an external caller (or manually-edited JSON) passing `'a'` would previously get 33 (`97 - 64`) instead of 1, silently mis-targeting cells. Internal callers always pass uppercase (via `parseRefMatch`'s `.toUpperCase()`), so no regression — just a hardened API surface.
+- **`evictOldestUntilFits` final `setItem` was unguarded.** On browsers that bill quota against an in-progress write, the recent-list write could itself throw `QuotaExceededError` after we'd already evicted blobs — leaving recent list and blob inventory inconsistent. Wrapped in try/catch; self-heals on next save.
+
+### Tests
+
+- **107/107** (up from 105). Two new cases for unterminated-string error paths.
+
 ## [0.2.3] — 2026-05-15 — "audit pass"
 
 Systematic codebase scan ([/byteside:debug-web-loop]) turned up one security

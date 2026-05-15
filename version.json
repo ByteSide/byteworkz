@@ -1,6 +1,6 @@
 {
-  "version": "0.2.3",
+  "version": "0.2.4",
   "date": "2026-05-15",
-  "build": "xss-hardening",
+  "build": "audit-pass-2",
   "apps": ["byteDoc", "byteSheet"]
 }

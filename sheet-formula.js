@@ -102,13 +102,20 @@ export function tokenize(text) {
         if (c === '"') {
             let j = i + 1;
             let s = '';
+            let closed = false;
             while (j < t.length) {
                 if (t[j] === '"') {
                     if (t[j+1] === '"') { s += '"'; j += 2; continue; }
+                    closed = true;
                     break;
                 }
                 s += t[j]; j++;
             }
+            // Unterminated string literals used to silently truncate at end-of-
+            // formula and produce a "successful" STR token. Excel throws — so do
+            // we. Without this, =CONCAT("abc gave a token with value "abc"
+            // and trailing source content vanished.
+            if (!closed) throw new FormulaError('#ERROR! unterminated string');
             const end = j + 1;
             tokens.push({ type: 'STR', value: s, loc: { start: tokStart, end } });
             i = end; continue;
@@ -389,8 +396,13 @@ export function splitRef(ref) {
     return [m[1], parseInt(m[2], 10)];
 }
 export function colToNum(col) {
+    // Defensive uppercase — callers inside this file always pass an already-
+    // uppercased letter (parseRefMatch / regex match), but the function is
+    // exported and external callers might not. Without this, colToNum('a')
+    // returns 33 (97-64) instead of 1, silently mis-targeting cells.
+    const c = String(col).toUpperCase();
     let n = 0;
-    for (let i = 0; i < col.length; i++) n = n * 26 + (col.charCodeAt(i) - 64);
+    for (let i = 0; i < c.length; i++) n = n * 26 + (c.charCodeAt(i) - 64);
     return n;
 }
 export function numToCol(n) {

@@ -50,7 +50,11 @@ function evictOldestUntilFits(needBytes) {
             localStorage.removeItem(k);
         }
     }
-    localStorage.setItem(KEY_RECENT, JSON.stringify(recent));
+    // setItem can still throw QuotaExceededError even after shrinking, on
+    // browsers that count quota against an in-progress write. Swallowing
+    // here is fine: the blobs are already evicted, and lsGetJSON on next
+    // load returns the stale-but-larger array — self-heals on next save.
+    try { localStorage.setItem(KEY_RECENT, JSON.stringify(recent)); } catch {}
     return freed >= needBytes;
 }
 
