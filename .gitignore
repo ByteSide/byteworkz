@@ -1,0 +1,23 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (in case someone runs npm/pnpm against the repo)
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# Local-only dev artifacts
+.cache/
+.tmp/
+*.log
+
+# Test scratch
+/tmp-*

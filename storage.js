@@ -1,0 +1,147 @@
+/* byteworkz/storage.js — localStorage persistence + JSON file I/O.
+ *
+ * Storage layout in localStorage:
+ *   byteworkz.recent       → JSON array of { id, app, title, updatedAt }   (≤ MAX_RECENT)
+ *   byteworkz.docs.<id>    → full document JSON (per app)
+ *
+ * On quota overflow, oldest recent docs are evicted FIFO and the user is toasted.
+ */
+
+import { toast } from './ui.js';
+
+const KEY_RECENT = 'byteworkz.recent';
+const KEY_DOC_PREFIX = 'byteworkz.docs.';
+const MAX_RECENT = 20;
+
+function lsGetJSON(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        return JSON.parse(raw);
+    } catch { return fallback; }
+}
+function lsSetJSON(key, value) {
+    const raw = JSON.stringify(value);
+    try {
+        localStorage.setItem(key, raw);
+        return true;
+    } catch (e) {
+        // Quota exceeded — evict oldest recent docs and retry once.
+        if (evictOldestUntilFits(raw.length + key.length)) {
+            try { localStorage.setItem(key, raw); return true; }
+            catch { /* fallthrough */ }
+        }
+        toast('Storage full — could not save. Try downloading the file.', { kind: 'error', timeout: 5000 });
+        return false;
+    }
+}
+
+function evictOldestUntilFits(needBytes) {
+    let recent = lsGetJSON(KEY_RECENT, []);
+    if (!recent.length) return false;
+    recent.sort((a, b) => (a.updatedAt || '').localeCompare(b.updatedAt || ''));
+    let freed = 0;
+    while (recent.length > 1 && freed < needBytes) {
+        const drop = recent.shift();
+        if (drop) {
+            const k = KEY_DOC_PREFIX + drop.id;
+            const v = localStorage.getItem(k);
+            freed += (v ? v.length : 0) + k.length;
+            localStorage.removeItem(k);
+        }
+    }
+    localStorage.setItem(KEY_RECENT, JSON.stringify(recent));
+    return freed >= needBytes;
+}
+
+/* ---------------- recent ---------------- */
+
+export const recent = {
+    list() {
+        const r = lsGetJSON(KEY_RECENT, []);
+        return r.slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    },
+    touch(meta) {
+        // meta: { id, app, title, updatedAt }
+        const r = lsGetJSON(KEY_RECENT, []);
+        const idx = r.findIndex(x => x.id === meta.id);
+        if (idx >= 0) r.splice(idx, 1);
+        r.unshift({ id: meta.id, app: meta.app, title: meta.title, updatedAt: meta.updatedAt });
+        // cap
+        while (r.length > MAX_RECENT) r.pop();
+        lsSetJSON(KEY_RECENT, r);
+    },
+    remove(id) {
+        const r = lsGetJSON(KEY_RECENT, []).filter(x => x.id !== id);
+        lsSetJSON(KEY_RECENT, r);
+        localStorage.removeItem(KEY_DOC_PREFIX + id);
+    },
+    get(id) {
+        return lsGetJSON(KEY_RECENT, []).find(x => x.id === id) || null;
+    }
+};
+
+/* ---------------- docs ---------------- */
+
+export const docs = {
+    save(doc) {
+        if (!doc || !doc.id) return false;
+        const ok = lsSetJSON(KEY_DOC_PREFIX + doc.id, doc);
+        if (ok) recent.touch({ id: doc.id, app: doc.app, title: doc.title || 'Untitled', updatedAt: doc.updatedAt || new Date().toISOString() });
+        return ok;
+    },
+    load(id) {
+        return lsGetJSON(KEY_DOC_PREFIX + id, null);
+    },
+    delete(id) {
+        localStorage.removeItem(KEY_DOC_PREFIX + id);
+        recent.remove(id);
+    }
+};
+
+/* ---------------- file I/O ---------------- */
+
+export const file = {
+    download(filename, content, mime = 'application/json') {
+        const blob = (content instanceof Blob)
+            ? content
+            : new Blob([typeof content === 'string' ? content : JSON.stringify(content, null, 2)], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+    },
+    /* openPicker(accept='.json,application/json') → Promise<{name, content<string>, json?}>|null */
+    openPicker(accept = '.json,application/json') {
+        return new Promise(resolve => {
+            const inp = document.createElement('input');
+            inp.type = 'file';
+            inp.accept = accept;
+            inp.style.display = 'none';
+            inp.addEventListener('change', async () => {
+                const f = inp.files && inp.files[0];
+                if (!f) { resolve(null); return; }
+                try {
+                    const text = await f.text();
+                    let json = null;
+                    if (/^\s*[{[]/.test(text)) {
+                        try { json = JSON.parse(text); } catch { /* not JSON */ }
+                    }
+                    resolve({ name: f.name, content: text, json });
+                } catch (err) {
+                    toast('Could not read file: ' + err.message, { kind: 'error' });
+                    resolve(null);
+                } finally {
+                    inp.remove();
+                }
+            });
+            document.body.appendChild(inp);
+            inp.click();
+        });
+    }
+};
+
+export function nowIso() { return new Date().toISOString(); }

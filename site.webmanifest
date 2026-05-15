@@ -1,0 +1,12 @@
+{
+  "name": "byteworkz",
+  "short_name": "byteworkz",
+  "description": "A minimal office suite — byteDoc + byteSheet. No sign-up, no cloud.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06171E",
+  "theme_color": "#06171E",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
