@@ -25,7 +25,7 @@ import {
     showContextMenu, closeContextMenu,
     escapeHtml, uid, debounce
 } from './ui.js';
-import { evaluate, colToNum, numToCol, splitRef } from './sheet-formula.js';
+import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, shiftRef, shiftRange } from './sheet-formula.js';
 
 // Siehe Kommentar in doc.js — Registry-Bootstrap idempotent in jedem App-Modul.
 window.ByteWorkz = window.ByteWorkz || { apps: [] };
@@ -1033,12 +1033,37 @@ async function doPaste() {
 
 /* ---------------- Insert/delete rows + cols ---------------- */
 
+// Walk every formula cell in every sheet; for refs that target the modified
+// sheet (bare refs in the modified sheet itself, or explicit Sheet!-prefixed
+// refs from other sheets), apply rowOp/colOp. rowOp/colOp take a 1-based
+// number and return either a new 1-based number or null to mean "this cell
+// got deleted" — which becomes a literal "#REF!" in the formula text (the
+// tokenizer rejects '#', so the evaluator surfaces the error on next eval).
+// Absolute refs ($A / A$1 / $A$1) are left untouched. This matches Excel.
+function shiftAllFormulaRefs({ rowOp, colOp, modifiedSheetIdx }) {
+    const modifiedSheetName = state.doc.sheets[modifiedSheetIdx].name;
+    state.doc.sheets.forEach((sh, sIdx) => {
+        Object.values(sh.cells).forEach(cell => {
+            if (cell.f == null) return;
+            cell.f = rewriteFormula(cell.f, tk => {
+                const targets = tk.sheet
+                    ? tk.sheet === modifiedSheetName
+                    : sIdx === modifiedSheetIdx;
+                if (!targets) return null;
+                if (tk.type === 'REF')   return shiftRef(tk, rowOp, colOp);
+                if (tk.type === 'RANGE') return shiftRange(tk, rowOp, colOp);
+                return null;
+            });
+        });
+    });
+}
+
 function insertRowAtActive() {
     const [, r] = splitRef(state.activeRef);
     const sh = activeSheet();
     if (sh.rows >= 1000) { toast('Max rows reached.', { kind: 'error' }); return; }
     sh.rows += 1;
-    // shift cells at or below r down by one
+    // shift existing cells at or below r down by one
     const moves = [];
     Object.keys(sh.cells).forEach(ref => {
         const [c, rn] = splitRef(ref);
@@ -1046,6 +1071,12 @@ function insertRowAtActive() {
     });
     moves.sort((a, b) => splitRef(b.from)[1] - splitRef(a.from)[1]);
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
+    // shift formula refs (Excel-style: non-absolute rows at or below r move with the data)
+    shiftAllFormulaRefs({
+        rowOp: (row) => row >= r ? row + 1 : row,
+        colOp: null,
+        modifiedSheetIdx: state.doc.activeSheet
+    });
     fullRecompute();
     renderGrid();
     markDirty();
@@ -1063,6 +1094,11 @@ function insertColAtActive() {
     });
     moves.sort((a, b) => colToNum(splitRef(b.from)[0]) - colToNum(splitRef(a.from)[0]));
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
+    shiftAllFormulaRefs({
+        rowOp: null,
+        colOp: (colNum) => colNum >= cn ? colNum + 1 : colNum,
+        modifiedSheetIdx: state.doc.activeSheet
+    });
     fullRecompute();
     renderGrid();
     markDirty();
@@ -1083,6 +1119,12 @@ function deleteActiveRow() {
     moves.sort((a, b) => splitRef(a.from)[1] - splitRef(b.from)[1]);
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
     sh.rows -= 1;
+    // refs pointing AT row r become #REF!; refs > r shift down by 1
+    shiftAllFormulaRefs({
+        rowOp: (row) => row === r ? null : (row > r ? row - 1 : row),
+        colOp: null,
+        modifiedSheetIdx: state.doc.activeSheet
+    });
     fullRecompute();
     renderGrid();
     markDirty();
@@ -1104,6 +1146,11 @@ function deleteActiveCol() {
     moves.sort((a, b) => colToNum(splitRef(a.from)[0]) - colToNum(splitRef(b.from)[0]));
     moves.forEach(m => { sh.cells[m.to] = sh.cells[m.from]; delete sh.cells[m.from]; });
     sh.cols -= 1;
+    shiftAllFormulaRefs({
+        rowOp: null,
+        colOp: (colNum) => colNum === cn ? null : (colNum > cn ? colNum - 1 : colNum),
+        modifiedSheetIdx: state.doc.activeSheet
+    });
     fullRecompute();
     renderGrid();
     markDirty();

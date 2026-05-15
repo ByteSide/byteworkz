@@ -1,6 +1,6 @@
 {
-  "version": "0.1.7",
+  "version": "0.1.8",
   "date": "2026-05-15",
-  "build": "tokenizer-foundation",
+  "build": "ref-shifting-insert-delete",
   "apps": ["byteDoc", "byteSheet"]
 }

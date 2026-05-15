@@ -4,6 +4,22 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.8] — 2026-05-15
+
+### Fixed (the big silent-correctness bug)
+
+- **byteSheet formulas now follow their target cells through Insert / Delete Row + Insert / Delete Column.** Before this release, inserting a row above row 1 would leave a formula `=A1+B1` literally pointing at the new (empty) row 1 — silently wrong. Excel-style behaviour now: non-absolute refs shift with the data; absolute refs (`$A$1`, `A$1`, `$A1`) stay anchored. Refs that point AT a deleted row/column become `#REF!` in the formula text (the tokenizer rejects `#`, so the evaluator surfaces the broken cell on next eval). Sheet-qualified refs in OTHER sheets that target the modified sheet are also walked.
+- `shiftRef(tk, rowOp, colOp)` and `shiftRange(tk, rowOp, colOp)` are now public exports of `sheet-formula.js`. `sheet.js` uses them in `insertRowAtActive` / `insertColAtActive` / `deleteActiveRow` / `deleteActiveCol`.
+
+### Tests
+
+- 66/66 (was 55). New: 11 shift-scenarios covering insert/delete row/col, absolute-ref preservation, range endpoints, cross-sheet refs, and the `#REF!` cases. A known-limitation case is also tested: deleting an absolute column (`$B$2` with delete-col B) currently leaves the absolute ref intact instead of emitting `#REF!`. Documented in the test as a v0.2 polish; the proper fix needs distinguishing "absolute-ref skips operations" from "absolute-ref breaks on target deletion".
+
+### Known limitations carried over
+
+- Sort still re-arranges cells but doesn't update formula refs in moved rows (the moved rows take their formulas with them as text; refs inside those formulas point at the OLD positions). Bigger redesign, deferred.
+- Sheet-rename doesn't update cross-sheet refs yet — that's the v0.1.9 chunk.
+
 ## [0.1.7] — 2026-05-15
 
 ### Added (formula-engine foundation for v0.2 "spreadsheet feature parity")

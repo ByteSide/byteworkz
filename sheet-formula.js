@@ -564,6 +564,45 @@ export function rangeToString(startCell, endCell, sheet) {
     return s;
 }
 
+// Apply rowOp/colOp to a single REF token, returning the new ref text.
+// rowOp/colOp are functions (1-based number → new number | null). `null`
+// means "this row/col was deleted" → produces literal `#REF!`. Absolute
+// markers ($A, A$1) skip the transform.
+export function shiftRef(tk, rowOp, colOp) {
+    let row = tk.row, col = tk.col;
+    if (!tk.rowAbs && rowOp) {
+        const r = rowOp(tk.row);
+        if (r === null) return '#REF!';
+        row = r;
+    }
+    if (!tk.colAbs && colOp) {
+        const c = colOp(colToNum(tk.col));
+        if (c === null) return '#REF!';
+        col = numToCol(c);
+    }
+    return refToString({ col, colAbs: tk.colAbs, row, rowAbs: tk.rowAbs, sheet: tk.sheet });
+}
+
+// Apply rowOp/colOp to a RANGE token. If any endpoint is invalidated, the
+// whole range becomes `#REF!` (matches Excel's behaviour — a partial-overlap
+// shrink would be nicer but is out of scope).
+export function shiftRange(tk, rowOp, colOp) {
+    const ns = { ...tk.startCell }, ne = { ...tk.endCell };
+    for (const cell of [ns, ne]) {
+        if (!cell.rowAbs && rowOp) {
+            const r = rowOp(cell.row);
+            if (r === null) return '#REF!';
+            cell.row = r;
+        }
+        if (!cell.colAbs && colOp) {
+            const c = colOp(colToNum(cell.col));
+            if (c === null) return '#REF!';
+            cell.col = numToCol(c);
+        }
+    }
+    return rangeToString(ns, ne, tk.sheet);
+}
+
 // Walk a formula's tokens and call `transform(token)` for each REF / RANGE
 // token. If `transform` returns a string, it replaces the source slice for
 // that token; if it returns null/undefined, the original text is kept.
