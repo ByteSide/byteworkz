@@ -26,6 +26,7 @@ import {
     escapeHtml, uid, debounce
 } from './ui.js';
 import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, refToString, rangeToString, shiftRef, shiftRange } from './sheet-formula.js';
+import { parseCSV, csvToCellsObj } from './csv.js';
 
 // Siehe Kommentar in doc.js — Registry-Bootstrap idempotent in jedem App-Modul.
 window.ByteWorkz = window.ByteWorkz || { apps: [] };
@@ -1890,15 +1891,64 @@ function doDownload() {
 }
 
 async function doOpen() {
-    const picked = await file.openPicker('.json,application/json');
-    if (!picked || !picked.json) return;
-    const j = picked.json;
-    if (j.app !== APP_MIME) { toast('Not a byteSheet file.', { kind: 'error' }); return; }
-    const id = j.id || uid('s');
-    j.id = id;
-    j.updatedAt = nowIso();
-    docs.save(j);
-    location.hash = '#/sheet/' + id;
+    // Accept either a .bytesheet.json file (existing flow) or a .csv file —
+    // CSV gets parsed and loaded as a fresh sheet inside the CURRENT doc.
+    // Keeping it in the current doc (vs. opening a separate file) means
+    // the user's existing sheets stay around — they can copy/paste data
+    // across sheets if they're consolidating.
+    const picked = await file.openPicker('.json,.csv,.txt,application/json,text/csv,text/plain');
+    if (!picked) return;
+    if (picked.json) {
+        const j = picked.json;
+        if (j.app !== APP_MIME) { toast('Not a byteSheet file.', { kind: 'error' }); return; }
+        const id = j.id || uid('s');
+        j.id = id;
+        j.updatedAt = nowIso();
+        docs.save(j);
+        location.hash = '#/sheet/' + id;
+        return;
+    }
+    if (picked.content) {
+        importCSVToCurrentDoc(picked.content, picked.name);
+        return;
+    }
+    toast('Unsupported file.', { kind: 'error' });
+}
+
+function importCSVToCurrentDoc(text, filename) {
+    const rows = parseCSV(text);
+    if (!rows.length) {
+        toast('CSV is empty.', { kind: 'error' });
+        return;
+    }
+    const baseName = (filename || 'CSV').replace(/\.[^.]+$/, '').slice(0, 30) || 'CSV';
+    const sh = newSheet(uniqueSheetName(baseName));
+    const { cells, rowsLoaded, colsLoaded } = csvToCellsObj(rows, { maxRows: sh.rows, maxCols: sh.cols });
+    sh.cells = cells;
+    state.doc.sheets.push(sh);
+    state.doc.activeSheet = state.doc.sheets.length - 1;
+    state.activeRef = 'A1';
+    state.selStart = state.selEnd = 'A1';
+    fullRecompute();
+    renderGrid();
+    renderSheetTabs();
+    renderCharts();
+    syncFormulaBar();
+    markDirty();
+    const truncated = rows.length > rowsLoaded
+        ? ` (truncated from ${rows.length} rows)`
+        : '';
+    toast(`Imported ${rowsLoaded} × ${colsLoaded}${truncated}.`, { kind: 'ok' });
+}
+
+// Match-by-name uniqueness for CSV-derived sheet names. Differs from
+// uniqueCopyName in that the suffix is "(2)" not "(copy 2)" — the source
+// here isn't a duplicate of an existing sheet.
+function uniqueSheetName(base) {
+    if (!state.doc.sheets.some(s => s.name === base)) return base;
+    let n = 2;
+    while (state.doc.sheets.some(s => s.name === `${base} (${n})`)) n++;
+    return `${base} (${n})`;
 }
 
 function doExportCSV() {

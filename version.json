@@ -1,6 +1,6 @@
 {
-  "version": "0.4.0",
+  "version": "0.4.1",
   "date": "2026-05-16",
-  "build": "templates",
+  "build": "csv-import",
   "apps": ["byteDoc", "byteSheet"]
 }

@@ -24,7 +24,7 @@
  * this; old caches are cleaned in `activate`.
  */
 
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const SHELL_CACHE = `byteworkz-shell-v${VERSION}`;
 
 const SHELL_FILES = [
@@ -34,6 +34,7 @@ const SHELL_FILES = [
     '/doc.js',
     '/sheet.js',
     '/sheet-formula.js',
+    '/csv.js',
     '/storage.js',
     '/ui.js',
     '/styles.css',

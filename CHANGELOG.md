@@ -4,6 +4,40 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] — 2026-05-16 — "CSV import"
+
+CSV import closes the export-only gap. Users can drop a `.csv` file on
+the hub (creates a new bytesheet doc) or open one inside byteSheet
+(adds as a new sheet in the current doc). Auto-detects delimiter,
+auto-formats header row if it looks like one.
+
+### Added
+
+- **`csv.js`** — new module, ~120 LOC:
+  - `parseCSV(text, delimiter?)` — RFC 4180-enough parser. Handles quoted fields, doubled-quote escape (`""` → `"`), CRLF + LF endings, UTF-8 BOM strip, trailing-newline tolerant.
+  - `sniffDelimiter(text)` — counts `,` / `\t` / `;` in the first 2KB and picks the winner. Excel uses `;` in DE/FR locales, our sniff catches that.
+  - `detectHeader(rows)` — heuristic: row 1 all non-numeric AND row 2 has at least one number → header. Avoids false positives on numeric-only data.
+  - `csvToCellsObj(rows, opts)` — produces a byteSheet `cells` object. Number coercion uses the same roundtrip check as cell-edit input (`parseFloat(s)` AND `String(n) === s.trim()`) so `"1.00"` stays a string. Caps at `maxRows=1000`, `maxCols=80` (grid limits). If header detected, row 1 cells get `{ b: 1, c: "#FD7D00" }` styling.
+- **byteSheet `doOpen` extended** to handle `.csv` and `.txt`. Picks the file → if JSON, existing flow; if text, parses as CSV and adds a fresh sheet to the current doc, named after the filename (`data.csv` → `Sheet "data"`). Uses `uniqueSheetName(base)` to avoid collision with existing tabs.
+- **Hub `openAnyFile` extended** to handle `.csv` / `.txt`. Drops the user straight into a new bytesheet doc with the imported data. One-click path from "I have a CSV" to "it's in byteworkz".
+- **Truncation toast** when CSV exceeds 1000 rows: `Imported 1000 × N (truncated from 5234 rows).`
+
+### Tests
+
+- **29 new CSV tests** (`tests/csv.mjs`): quoted fields, escaped quotes, CRLF, BOM, empty input, only-newlines, delimiter sniffing (comma/tab/semicolon/mixed), header detection edge cases, cell-conversion structure, number-vs-string coercion (incl. `1.00` stays string), truncation, empty-field skipping.
+- Formula tests still **107/107**.
+
+### Schema unchanged
+
+CSV import goes through the same `docs.save()` path as everything else.
+No new persistence format. Downloads continue to be JSON; CSV is import-
+only at the storage layer. (We already had CSV export from a single sheet
+via the toolbar.)
+
+### Service worker
+
+- VERSION bumped to 0.4.1. `csv.js` added to SHELL_FILES (offline-capable).
+
 ## [0.4.0] — 2026-05-16 — "Hub templates"
 
 First-time visitors land on a hub that's no longer just an empty Recent

@@ -13,6 +13,7 @@
 
 import { recent, docs, file, nowIso } from './storage.js';
 import { toast, fmtRelative, uid, confirm, showModal, escapeHtml } from './ui.js';
+import { parseCSV, csvToCellsObj } from './csv.js';
 
 window.ByteWorkz = window.ByteWorkz || { apps: [] };
 
@@ -345,23 +346,63 @@ async function instantiateTemplate(meta) {
 }
 
 async function openAnyFile() {
-    const picked = await file.openPicker('.json,application/json');
+    const picked = await file.openPicker('.json,.csv,.txt,application/json,text/csv,text/plain');
     if (!picked) return;
-    if (!picked.json || !picked.json.app) {
-        toast('Not a byteworkz document.', { kind: 'error' });
+    if (picked.json && picked.json.app) {
+        const j = picked.json;
+        // Prefix the generated id by app type so storage scans / debugging
+        // stay readable. The previous code always used 'd' regardless.
+        const prefix = j.app === 'bytesheet' ? 's' : 'd';
+        const id = j.id || uid(prefix);
+        j.id = id;
+        j.updatedAt = nowIso();
+        docs.save(j);
+        if (j.app === 'bytedoc')        location.hash = '#/doc/' + id;
+        else if (j.app === 'bytesheet') location.hash = '#/sheet/' + id;
+        else toast('Unknown app type: ' + j.app, { kind: 'error' });
         return;
     }
-    const j = picked.json;
-    // Prefix the generated id by app type so storage scans / debugging stay
-    // readable. The previous code always used 'd' regardless of app.
-    const prefix = j.app === 'bytesheet' ? 's' : 'd';
-    const id = j.id || uid(prefix);
-    j.id = id;
-    j.updatedAt = nowIso();
-    docs.save(j);
-    if (j.app === 'bytedoc')   { location.hash = '#/doc/' + id; }
-    else if (j.app === 'bytesheet') { location.hash = '#/sheet/' + id; }
-    else { toast('Unknown app type: ' + j.app, { kind: 'error' }); }
+    // Not a byteworkz JSON — try CSV. We materialise a fresh bytesheet doc
+    // from the CSV data and navigate to it. Same result as opening byteSheet
+    // first and using its CSV import, just one click instead of two.
+    if (picked.content && /\.csv$|\.txt$/i.test(picked.name || '')) {
+        importCSVAsNewDoc(picked.content, picked.name);
+        return;
+    }
+    toast('Not a byteworkz document.', { kind: 'error' });
+}
+
+function importCSVAsNewDoc(text, filename) {
+    const rows = parseCSV(text);
+    if (!rows.length) {
+        toast('CSV is empty.', { kind: 'error' });
+        return;
+    }
+    const base = (filename || 'Imported').replace(/\.[^.]+$/, '').slice(0, 60) || 'Imported';
+    const { cells, rowsLoaded, colsLoaded } = csvToCellsObj(rows, { maxRows: 1000, maxCols: 80 });
+    const now = nowIso();
+    const doc = {
+        app: 'bytesheet',
+        version: 1,
+        id: uid('s'),
+        title: base,
+        createdAt: now,
+        updatedAt: now,
+        activeSheet: 0,
+        sheets: [{
+            name: 'Sheet1',
+            cols: 26,
+            rows: 100,
+            cells,
+            charts: []
+        }]
+    };
+    docs.save(doc);
+    const truncated = rows.length > rowsLoaded
+        ? ` (truncated from ${rows.length} rows)`
+        : '';
+    toast(`Imported ${rowsLoaded} × ${colsLoaded}${truncated}.`, { kind: 'ok' });
+    location.hash = '#/sheet/' + doc.id;
 }
 
 function renderRecent() {
