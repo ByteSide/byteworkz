@@ -89,6 +89,60 @@
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     font-style: italic;
 }
+
+/* Code blocks — pre wraps a code element for semantic correctness. Browser
+ * default 'white-space: pre' preserves indentation; we add a slightly
+ * deeper surface + accent-tinted left bar + scroll on overflow so long
+ * lines don't blow out the editor width. */
+.doc-editor pre {
+    background: var(--bg-2);
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 14px 18px;
+    margin: 1em 0;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--fg);
+    white-space: pre;
+    tab-size: 4;
+    -moz-tab-size: 4;
+}
+.doc-editor pre code {
+    font-family: inherit;
+    font-size: inherit;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    border: 0;
+}
+/* Inline <code> — different visual: rounded chip with accent text. The
+ * user-facing insert path is just paste/raw HTML for now; no toolbar
+ * button for inline code in v1. */
+.doc-editor code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: rgba(0, 0, 0, 0.30);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+    border: 1px solid rgba(253, 125, 0, 0.18);
+}
+
+/* Drag-over feedback. Triggered while files are being dragged into the
+ * editor. We use box-shadow rather than outline so the existing border
+ * stays intact — outline would clobber the editor's focus ring layering. */
+.doc-editor.drag-over {
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.04) inset,
+        0 30px 80px -20px rgba(0,0,0,0.5),
+        0 10px 30px -10px rgba(0,0,0,0.4),
+        0 0 0 3px var(--accent),
+        inset 0 0 0 1px rgba(253, 125, 0, 0.3);
+    border-color: var(--accent);
+}
 .doc-editor img {
     max-width: 100%;
     display: inline-block;

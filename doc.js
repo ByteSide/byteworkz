@@ -33,7 +33,7 @@ const APP_TITLE = 'byteDoc';
 const APP_MIME = 'bytedoc';
 const APP_VERSION = 1;
 
-const SAFE_PASTE_TAGS = new Set(['P','DIV','BR','B','STRONG','I','EM','U','S','STRIKE','H1','H2','H3','H4','UL','OL','LI','A','BLOCKQUOTE','TABLE','THEAD','TBODY','TR','TD','TH','SPAN','IMG']);
+const SAFE_PASTE_TAGS = new Set(['P','DIV','BR','B','STRONG','I','EM','U','S','STRIKE','H1','H2','H3','H4','UL','OL','LI','A','BLOCKQUOTE','TABLE','THEAD','TBODY','TR','TD','TH','SPAN','IMG','PRE','CODE']);
 // Whitelist of attributes per tag. Everything else is stripped. The previous
 // blacklist (style/class/id/onclick/onload/onerror) missed onmouseover,
 // onfocus, onpointerdown, formaction, srcdoc, etc. — a hand-crafted
@@ -380,6 +380,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="link"  title="Insert link">⛓</button>
         <button class="btn-icon" data-action="table" title="Insert table">▦</button>
         <button class="btn-icon" data-action="image" title="Insert image">🖼</button>
+        <button class="btn-icon" data-action="code"  title="Insert code block">&lt;/&gt;</button>
         <button class="btn-icon" data-cmd="removeFormat" title="Clear format">Tx</button>
         <div class="btn-divider"></div>
         <button class="btn-icon" data-action="find" title="Find &amp; Replace (Ctrl+F)">⌕</button>
@@ -426,10 +427,54 @@ function handleAction(action) {
     if (action === 'link') return doInsertLink();
     if (action === 'table') return doInsertTable();
     if (action === 'image') return doInsertImage();
+    if (action === 'code') return doInsertCodeBlock();
     if (action === 'find') return toggleFind(true);
     if (action === 'save') return doDownload();
     if (action === 'open') return doOpen();
     if (action === 'export-html') return doExportHtml();
+}
+
+function doInsertCodeBlock() {
+    state.editor.focus();
+    if (state.snapshotDebounced) state.snapshotDebounced.flush();
+    // The trailing <p><br></p> exists so the user can keep typing prose
+    // after the code block — without it, the caret has no exit from <pre>
+    // on Enter (which inside pre stays as a line break).
+    document.execCommand('insertHTML', false, '<pre><code>// code</code></pre><p><br></p>');
+    markDirty();
+    commitSnapshot(active());
+}
+
+// Promise wrapper around FileReader for dataURL — used by drag-drop and
+// clipboard-paste image handlers. Resolves to null on read failure (rather
+// than rejecting) so multi-file batches don't abort on one bad file.
+function readImageAsDataURL(file) {
+    return new Promise(resolve => {
+        if (file.size > 8 * 1024 * 1024) {
+            toast(`Image "${file.name || 'unnamed'}" too large (max 8 MB).`, { kind: 'error' });
+            resolve(null); return;
+        }
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => resolve(null);
+        r.readAsDataURL(file);
+    });
+}
+
+// Caret position from screen coords — used to drop images where the
+// pointer is, not at the end of the doc. Two APIs exist; the older
+// Firefox one needs adaptation.
+function caretRangeFromPoint(x, y) {
+    if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+    if (document.caretPositionFromPoint) {
+        const pos = document.caretPositionFromPoint(x, y);
+        if (!pos) return null;
+        const r = document.createRange();
+        r.setStart(pos.offsetNode, pos.offset);
+        r.collapse(true);
+        return r;
+    }
+    return null;
 }
 
 /* ---------------- Topbar (title + save indicator + word count) ---------------- */
@@ -575,6 +620,77 @@ function bindEditor() {
     state.editor.addEventListener('paste', onPaste);
     state.editor.addEventListener('click', onEditorClick);
     state.editor.addEventListener('contextmenu', onEditorContext);
+    bindImageDrop();
+    bindCodeBlockTab();
+}
+
+// Tab inside a <pre> should insert a tab character, not move focus or
+// indent the whole document. Only intercepts when the caret is actually
+// inside a pre — outside, default browser behaviour (focus next field).
+function bindCodeBlockTab() {
+    state.editor.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey) return;
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return;
+        let node = sel.getRangeAt(0).startContainer;
+        while (node && node !== state.editor) {
+            if (node.nodeType === 1 && node.tagName === 'PRE') {
+                e.preventDefault();
+                document.execCommand('insertText', false, e.shiftKey ? '' : '\t');
+                return;
+            }
+            node = node.parentNode;
+        }
+    });
+}
+
+// Image drag-drop. Files-only — dragging text or html falls through to
+// the browser's default contenteditable handler. Visual feedback (the
+// .drag-over class) is gated through a counter because dragenter/leave
+// fire on every child element traversal, which would otherwise flicker
+// the highlight on/off as the pointer moves over child nodes.
+function bindImageDrop() {
+    let depth = 0;
+    const hasFiles = (dt) => dt && Array.from(dt.types || []).includes('Files');
+    state.editor.addEventListener('dragenter', (e) => {
+        if (!hasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        depth++;
+        state.editor.classList.add('drag-over');
+    });
+    state.editor.addEventListener('dragover', (e) => {
+        if (hasFiles(e.dataTransfer)) e.preventDefault();  // allow drop
+    });
+    state.editor.addEventListener('dragleave', () => {
+        depth = Math.max(0, depth - 1);
+        if (depth === 0) state.editor.classList.remove('drag-over');
+    });
+    state.editor.addEventListener('drop', async (e) => {
+        depth = 0;
+        state.editor.classList.remove('drag-over');
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (!files || !files.length) return;
+        const imgs = Array.from(files).filter(f => f.type.startsWith('image/'));
+        if (!imgs.length) return;
+        e.preventDefault();
+        // Place caret at the drop point so the image lands where the
+        // pointer was, not at the end of the doc.
+        const range = caretRangeFromPoint(e.clientX, e.clientY);
+        if (range && state.editor.contains(range.startContainer)) {
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } else {
+            state.editor.focus();
+        }
+        if (state.snapshotDebounced) state.snapshotDebounced.flush();
+        const dataURLs = await Promise.all(imgs.map(readImageAsDataURL));
+        const html = dataURLs.filter(Boolean).map(u => `<img src="${u}" alt="">`).join('');
+        if (!html) return;
+        document.execCommand('insertHTML', false, html);
+        markDirty();
+        commitSnapshot(active());
+    });
 }
 
 function onPaste(e) {
@@ -584,6 +700,26 @@ function onPaste(e) {
     // Commit any pending text-input snapshot so the paste becomes a discrete
     // undo step rather than merging with the surrounding typing.
     if (state.snapshotDebounced) state.snapshotDebounced.flush();
+
+    // Image-in-clipboard path — screenshots, copied images from browsers.
+    // The browser exposes them through clipboardData.files. Process these
+    // FIRST: when a user copies an image from a website, the clipboard
+    // often contains both the image file AND an <img>-tag HTML fragment;
+    // the HTML alternative would re-fetch the image at runtime (broken
+    // offline, network round-trip even online), while files give us the
+    // bytes we can inline as a DataURL right now.
+    const imgFiles = cd.files && Array.from(cd.files).filter(f => f.type.startsWith('image/'));
+    if (imgFiles && imgFiles.length) {
+        Promise.all(imgFiles.map(readImageAsDataURL)).then(urls => {
+            const html = urls.filter(Boolean).map(u => `<img src="${u}" alt="">`).join('');
+            if (!html) return;
+            document.execCommand('insertHTML', false, html);
+            markDirty();
+            commitSnapshot(active());
+        });
+        return;
+    }
+
     // Prefer text/html, sanitize.
     let html = cd.getData('text/html');
     if (html) {

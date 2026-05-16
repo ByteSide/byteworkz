@@ -4,6 +4,34 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] — 2026-05-16 — "byteDoc code blocks + image drop"
+
+byteDoc was the leaner of the two apps. This release closes the feature
+gap with three editor enhancements that match user expectations from
+modern web editors (Notion / GitHub / etc.).
+
+### Added — code blocks
+
+- **`PRE` and `CODE`** added to the sanitizer whitelist (was blacklist before; now correctly typed in the per-tag allow list).
+- **Toolbar `</>` button** inserts a `<pre><code>// code</code></pre>` block plus a trailing empty paragraph (so the user has a way out of the pre block via plain Enter).
+- **Tab inside `<pre>`** inserts an actual `\t` character instead of moving focus out of the editor. Shift+Tab is intercepted but no-op for now (real outdent semantics would need parsing the line — out of scope).
+- **CSS**: pre gets a left accent bar + slightly darker surface + horizontal scroll on overflow, `tab-size: 4`. Inline `<code>` (e.g. from pasted GitHub markdown) gets a rounded accent-tinted chip treatment.
+
+### Added — image drop + paste
+
+- **Drag-and-drop image** into the editor. Multiple files in one drop are all inserted. Files-only detection (`dataTransfer.types.includes('Files')`); dragging plain text falls through to the browser's default contenteditable handler. Caret is placed at the drop point via `document.caretRangeFromPoint` (with Firefox `caretPositionFromPoint` fallback) so the image lands where the pointer is, not at the end of the doc.
+- **Paste image from clipboard** (screenshots, copied images). Detected via `clipboardData.files`. Processed BEFORE the text/html fallback because some websites paste both an image file AND an `<img src="https://...">` HTML fragment — the file gives us bytes to inline as a DataURL right now, while the HTML path would re-fetch over the network and break offline.
+- **8 MB per-image cap**, reused from the existing image-picker flow. Oversize files toast and skip; the rest of a multi-image drop still completes.
+- **Visual feedback**: `.drag-over` class on the editor applies a 3px accent halo + accent border + inner ring while a file is being dragged. Uses a depth counter (not a flag) so dragenter/leave events from child elements don't flicker the highlight.
+
+### Service worker
+
+- VERSION bumped to 0.4.2.
+
+### Tests
+
+- 29 + 107 unchanged.
+
 ## [0.4.1] — 2026-05-16 — "CSV import"
 
 CSV import closes the export-only gap. Users can drop a `.csv` file on
