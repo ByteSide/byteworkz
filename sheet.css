@@ -159,6 +159,37 @@
     box-shadow: inset 0 0 6px var(--accent-glow);
 }
 
+/* Fill handle — small accent square at the bottom-right corner of the
+ * active selection. Drag to fill cells below / above / right / left of
+ * the source. Single-DOM-node overlay positioned in JS via getBoundingClientRect
+ * + scroll offsets; lives inside .sheet-grid-wrap so it scrolls with content. */
+.fill-handle {
+    position: absolute;
+    width: 9px; height: 9px;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    border-radius: 1px;
+    cursor: crosshair;
+    z-index: 5;
+    box-shadow: 0 0 0 1px var(--accent), 0 0 8px var(--accent-glow);
+    pointer-events: auto;
+    transition: transform var(--t-fast);
+}
+.fill-handle:hover { transform: scale(1.15); }
+/* During an in-progress fill drag, dim the handle so the preview range is
+ * what the user's eye tracks. */
+.fill-handle.dragging { opacity: 0.4; cursor: default; }
+
+/* Cells in the fill-preview range — dashed accent border, subtle bg tint.
+ * Distinct from .in-range (the regular selection visual) so the user can
+ * see the source vs. fill-target clearly. */
+.sheet-grid td.fill-preview {
+    background: rgba(253, 125, 0, 0.06) !important;
+    outline: 1.5px dashed var(--accent);
+    outline-offset: -2px;
+    z-index: 1;
+}
+
 /* Sheet tabs bar at bottom */
 .sheet-tabs {
     display: flex; align-items: center;

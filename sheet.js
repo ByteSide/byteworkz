@@ -63,7 +63,9 @@ const state = {
     gridTable: null,
     statusBar: null,
     chartLayer: null,
-    sheetTabsEl: null
+    sheetTabsEl: null,
+    fillHandle: null,    // DOM overlay div positioned at selection's bottom-right
+    fillDrag: null       // in-progress drag state: {srcBounds, fillRange, direction}
 };
 
 /* ---------------- Doc init ---------------- */
@@ -166,6 +168,11 @@ function unmount() {
     topbar.clearCenter();
     document.removeEventListener('keydown', onGlobalKey, true);
     state.mounted = false;
+    // Fill-handle was a child of the about-to-be-cleared container; null
+    // the ref so the next mount creates a fresh overlay attached to the
+    // freshly-built gridWrap.
+    state.fillHandle = null;
+    state.fillDrag = null;
     if (state.container) state.container.innerHTML = '';
     closeContextMenu();
 }
@@ -589,6 +596,267 @@ function updateSelectionVisual() {
     const activeTd = state.gridTable.querySelector(`td[data-ref="${state.activeRef}"]`);
     if (activeTd) scrollIntoViewIfNeeded(activeTd);
     if (state.cellRefLabel) state.cellRefLabel.textContent = state.activeRef;
+    renderFillHandle();
+}
+
+/* ---------------- Fill handle (Excel-style drag-fill) ---------------- */
+
+function renderFillHandle() {
+    if (!state.gridWrap || !state.gridTable) return;
+    // Anchor at the bottom-right of the current selection (not just active
+    // cell — multi-cell selections fill from the whole range).
+    const b = selectionBounds();
+    const cornerRef = numToCol(b.c2) + b.r2;
+    const td = state.gridTable.querySelector(`td[data-ref="${cornerRef}"]`);
+    if (!td) {
+        if (state.fillHandle) state.fillHandle.hidden = true;
+        return;
+    }
+    // Lazy-create the handle. Recreate if it got detached (post-unmount
+    // / post-buildDOM the old reference is stale).
+    if (!state.fillHandle || !state.gridWrap.contains(state.fillHandle)) {
+        state.fillHandle = document.createElement('div');
+        state.fillHandle.className = 'fill-handle';
+        state.fillHandle.addEventListener('mousedown', onFillDragStart);
+        state.gridWrap.appendChild(state.fillHandle);
+    }
+    // Position content-relative: td.getBoundingClientRect() is viewport-
+    // relative, so subtract gridWrap rect and add scroll offsets to land
+    // in scrolled-content coordinates.
+    const tdR = td.getBoundingClientRect();
+    const wrapR = state.gridWrap.getBoundingClientRect();
+    state.fillHandle.style.left = (tdR.right  - wrapR.left + state.gridWrap.scrollLeft - 5) + 'px';
+    state.fillHandle.style.top  = (tdR.bottom - wrapR.top  + state.gridWrap.scrollTop  - 5) + 'px';
+    state.fillHandle.hidden = false;
+}
+
+function onFillDragStart(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    commitEdit();
+    state.fillDrag = {
+        srcBounds: selectionBounds(),
+        fillRange: null,
+        direction: null,
+        lastTargetRef: null
+    };
+    state.fillHandle.classList.add('dragging');
+    document.addEventListener('mousemove', onFillDragMove);
+    document.addEventListener('mouseup', onFillDragEnd);
+}
+
+function onFillDragMove(e) {
+    if (!state.fillDrag) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const td = el && el.closest && el.closest('td[data-ref]');
+    if (!td) return;
+    const targetRef = td.dataset.ref;
+    if (targetRef === state.fillDrag.lastTargetRef) return;
+    state.fillDrag.lastTargetRef = targetRef;
+    computeFillPreview(targetRef);
+}
+
+function computeFillPreview(targetRef) {
+    const src = state.fillDrag.srcBounds;
+    const [tCol, tRow] = splitRef(targetRef);
+    const tCn = colToNum(tCol);
+    // Direction by which extreme of target falls outside source. If the
+    // target is inside source bounds in both axes, no fill (shrink-fill
+    // semantics are out of scope for v1).
+    let direction = null;
+    let fillRange = null;
+    if (tRow > src.r2) {
+        direction = 'down';
+        fillRange = { c1: src.c1, c2: src.c2, r1: src.r2 + 1, r2: tRow };
+    } else if (tRow < src.r1) {
+        direction = 'up';
+        fillRange = { c1: src.c1, c2: src.c2, r1: tRow, r2: src.r1 - 1 };
+    } else if (tCn > src.c2) {
+        direction = 'right';
+        fillRange = { c1: src.c2 + 1, c2: tCn, r1: src.r1, r2: src.r2 };
+    } else if (tCn < src.c1) {
+        direction = 'left';
+        fillRange = { c1: tCn, c2: src.c1 - 1, r1: src.r1, r2: src.r2 };
+    }
+    state.fillDrag.direction = direction;
+    state.fillDrag.fillRange = fillRange;
+    // Clear previous preview classes; apply to new range.
+    state.gridTable.querySelectorAll('td.fill-preview').forEach(t => t.classList.remove('fill-preview'));
+    if (!fillRange) return;
+    for (let r = fillRange.r1; r <= fillRange.r2; r++) {
+        for (let cn = fillRange.c1; cn <= fillRange.c2; cn++) {
+            const ref = numToCol(cn) + r;
+            const td = state.gridTable.querySelector(`td[data-ref="${ref}"]`);
+            if (td) td.classList.add('fill-preview');
+        }
+    }
+}
+
+function onFillDragEnd() {
+    document.removeEventListener('mousemove', onFillDragMove);
+    document.removeEventListener('mouseup', onFillDragEnd);
+    if (state.fillHandle) state.fillHandle.classList.remove('dragging');
+    state.gridTable.querySelectorAll('td.fill-preview').forEach(t => t.classList.remove('fill-preview'));
+    const drag = state.fillDrag;
+    state.fillDrag = null;
+    if (!drag || !drag.fillRange || !drag.direction) return;
+    applyFill(drag.srcBounds, drag.fillRange, drag.direction);
+}
+
+/* ---- Fill-application logic ----
+ *
+ * Strategy per cross-axis line (one column for vertical fills, one row for
+ * horizontal):
+ *   1. Read the source line's cells along the fill axis.
+ *   2. If all cells are numeric AND form an arithmetic progression, treat
+ *      as a series — extrapolate by `step` past the last source value.
+ *   3. Otherwise: wrap-copy source modulo source-length. Formula cells get
+ *      their relative refs shifted by the per-target row/col delta from
+ *      the source cell they were copied from.
+ *
+ * `idx` is the 0-based distance from the source-edge of the fill, growing
+ * outward. So fillRange[0] is the cell immediately adjacent to source. */
+function applyFill(srcBounds, fillRange, direction) {
+    const sh = activeSheet();
+    const isVertical = direction === 'down' || direction === 'up';
+    const goingForward = direction === 'down' || direction === 'right';
+
+    // Pre-analyse each cross-axis line of the source — vertical fill: one
+    // analysis per column; horizontal: one per row.
+    const analyses = new Map();
+    if (isVertical) {
+        for (let cn = srcBounds.c1; cn <= srcBounds.c2; cn++) {
+            const cells = [];
+            for (let r = srcBounds.r1; r <= srcBounds.r2; r++) {
+                cells.push(sh.cells[numToCol(cn) + r] || null);
+            }
+            analyses.set(cn, analyzeSeries(cells));
+        }
+    } else {
+        for (let r = srcBounds.r1; r <= srcBounds.r2; r++) {
+            const cells = [];
+            for (let cn = srcBounds.c1; cn <= srcBounds.c2; cn++) {
+                cells.push(sh.cells[numToCol(cn) + r] || null);
+            }
+            analyses.set(r, analyzeSeries(cells));
+        }
+    }
+
+    const srcLen = isVertical
+        ? srcBounds.r2 - srcBounds.r1 + 1
+        : srcBounds.c2 - srcBounds.c1 + 1;
+
+    // Enumerate target cells in fill order: idx 0 = adjacent to source.
+    const targets = [];
+    if (direction === 'down') {
+        for (let r = fillRange.r1; r <= fillRange.r2; r++)
+            for (let cn = fillRange.c1; cn <= fillRange.c2; cn++)
+                targets.push({ r, cn, idx: r - fillRange.r1 });
+    } else if (direction === 'up') {
+        for (let r = fillRange.r2; r >= fillRange.r1; r--)
+            for (let cn = fillRange.c1; cn <= fillRange.c2; cn++)
+                targets.push({ r, cn, idx: fillRange.r2 - r });
+    } else if (direction === 'right') {
+        for (let cn = fillRange.c1; cn <= fillRange.c2; cn++)
+            for (let r = fillRange.r1; r <= fillRange.r2; r++)
+                targets.push({ r, cn, idx: cn - fillRange.c1 });
+    } else {
+        for (let cn = fillRange.c2; cn >= fillRange.c1; cn--)
+            for (let r = fillRange.r1; r <= fillRange.r2; r++)
+                targets.push({ r, cn, idx: fillRange.c2 - cn });
+    }
+
+    for (const { r, cn, idx } of targets) {
+        const ref = numToCol(cn) + r;
+        const crossKey = isVertical ? cn : r;
+        const a = analyses.get(crossKey);
+        if (!a) continue;
+
+        if (a.type === 'series') {
+            // Arithmetic-progression extrapolation. idx 0 = first cell past
+            // source; growing-forward adds steps after `last`, growing-
+            // backward subtracts from `first`.
+            const newVal = goingForward
+                ? a.last  + a.step * (idx + 1)
+                : a.first - a.step * (idx + 1);
+            const styleSrc = goingForward ? a.lastCell : a.firstCell;
+            const newCell = { v: newVal };
+            if (styleSrc && styleSrc.s) newCell.s = { ...styleSrc.s };
+            sh.cells[ref] = newCell;
+            continue;
+        }
+
+        // Plain copy with wrap. Map idx → which source cell to copy from.
+        // For 'up' / 'left' fills we mirror so the closest source cell is
+        // copied first (idx=0 → end of source).
+        const wrap = idx % srcLen;
+        const srcOffset = goingForward ? wrap : (srcLen - 1 - wrap);
+        const srcRow = isVertical ? srcBounds.r1 + srcOffset : r;
+        const srcCn  = isVertical ? cn : srcBounds.c1 + srcOffset;
+        const srcCell = a.values[srcOffset];
+        if (!srcCell) { delete sh.cells[ref]; continue; }
+        const newCell = {};
+        if (srcCell.s) newCell.s = { ...srcCell.s };
+        if (srcCell.f != null) {
+            const rowDelta = r  - srcRow;
+            const colDelta = cn - srcCn;
+            newCell.f = shiftFormulaText(srcCell.f, rowDelta, colDelta);
+        } else if (srcCell.v !== undefined) {
+            newCell.v = srcCell.v;
+        }
+        sh.cells[ref] = newCell;
+    }
+
+    // Expand the selection to include the just-filled range. Matches
+    // Excel's post-fill state — the user sees what they filled, and a
+    // subsequent fill from the new bottom-right can continue.
+    state.selStart = numToCol(Math.min(srcBounds.c1, fillRange.c1)) + Math.min(srcBounds.r1, fillRange.r1);
+    state.selEnd   = numToCol(Math.max(srcBounds.c2, fillRange.c2)) + Math.max(srcBounds.r2, fillRange.r2);
+    state.activeRef = numToCol(srcBounds.c1) + srcBounds.r1;  // active stays at source top-left
+
+    fullRecompute();
+    renderGrid();
+    markDirty();
+    const count = (fillRange.c2 - fillRange.c1 + 1) * (fillRange.r2 - fillRange.r1 + 1);
+    toast(`Filled ${count} cell${count === 1 ? '' : 's'}.`, { kind: 'ok', timeout: 1400 });
+}
+
+// Determine if a set of source cells along the fill axis represent an
+// arithmetic progression (constant step between successive numeric values).
+// If so, callers extrapolate by stepping past `last` (or before `first`)
+// instead of wrapping. A single-value source returns 'copy' — Excel's
+// default for single-cell drag-fill is copy, not increment-by-1.
+function analyzeSeries(values) {
+    if (values.length < 2) return { type: 'copy', values };
+    const nums = values.map(c => c && typeof c.v === 'number' ? c.v : null);
+    if (nums.some(n => n === null)) return { type: 'copy', values };
+    const step = nums[1] - nums[0];
+    for (let i = 2; i < nums.length; i++) {
+        if (Math.abs((nums[i] - nums[i - 1]) - step) > 1e-9) return { type: 'copy', values };
+    }
+    return {
+        type: 'series',
+        step,
+        first: nums[0],
+        last:  nums[nums.length - 1],
+        firstCell: values[0],
+        lastCell:  values[values.length - 1]
+    };
+}
+
+// Shift every relative ref in a formula by (rowDelta, colDelta). Absolute
+// markers ($A, A$1, $A$1) are respected — shiftRef/shiftRange skip those
+// by default. Reuses the same primitives as insert/delete-row/col so the
+// behaviour is consistent across all structural ops.
+function shiftFormulaText(text, rowDelta, colDelta) {
+    if (!rowDelta && !colDelta) return text;
+    const rowOp = rowDelta ? (r => r + rowDelta) : null;
+    const colOp = colDelta ? (c => c + colDelta) : null;
+    return rewriteFormula(text, tk => {
+        if (tk.type === 'REF')   return shiftRef(tk, rowOp, colOp);
+        if (tk.type === 'RANGE') return shiftRange(tk, rowOp, colOp);
+        return null;
+    });
 }
 function scrollIntoViewIfNeeded(td) {
     const wrap = state.gridWrap;

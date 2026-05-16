@@ -4,6 +4,38 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.3] — 2026-05-16 — "byteSheet fill-down handle"
+
+The drag-the-corner gesture every spreadsheet user expects. Closes the
+biggest remaining feature gap in byteSheet — no more typing `=A2*2` 100
+times when you can write it once and drag.
+
+### Added
+
+- **Fill handle** — 9×9px accent square at the bottom-right of the active selection. Lazy-rendered as a single position-absolute div inside the grid wrap (scrolls with content via content-relative coords). Visual: bordered with bg, soft accent glow, hover scales 15%. Drag this corner to fill cells outward.
+- **All four directions**: down, up, right, left. Direction is inferred from which axis the drag target falls outside the source bounds. Targets inside the source bounds are no-ops (Excel-style "shrink-fill" is out of scope for v1).
+- **Multi-cell source with arithmetic-progression detection.** If the source cells along the fill axis are numbers AND have a constant step (`1, 2, 3` or `10, 20, 30` or `5, 0, -5`), the fill extrapolates by `step` past the last source value. Per-cross-axis-line analysis: vertical fill analyzes each source column independently, horizontal fill each row. Single-cell sources default to plain copy (matches Excel's default — increment-by-1 requires Ctrl in Excel; we don't have a modifier path yet).
+- **Formula refs shift on fill** via the existing `shiftRef` / `shiftRange` primitives from `sheet-formula.js`. So filling `=A1+B1` down auto-targets `=A2+B2`, `=A3+B3`, etc. Absolute markers (`$A$1`, `$A1`, `A$1`) are respected — they don't shift, exactly as in insert/delete-row/col operations. Consistent behaviour across all structural ops.
+- **Plain-copy with wrap** for non-numeric / non-series sources. Pattern repeats modulo source length. So filling `A, B, C` down to 8 cells produces `A, B, C, A, B, C, A, B`.
+- **Post-fill selection expansion**: after fill, the selection grows to cover source + filled range. Active cell stays at the source top-left. Lets you chain a second fill from the new bottom-right.
+- **Live preview** during drag — target cells get a dashed accent border + subtle accent tint (`.fill-preview`), distinct from regular selection styling so source vs. target stays readable.
+- **Toast feedback**: `Filled N cells.` after a successful drop.
+
+### Known limitations
+
+- **No undo for byteSheet** (broader than fill — byteSheet has never had an undo stack; byteDoc does via snapshot history from v0.2.2). A bad fill is permanent in this session unless the user manually re-edits. Adding sheet-wide undo is a future v0.5.x candidate.
+- **No date / weekday / "Q1" pattern detection**. Numeric arithmetic progressions only.
+- **No Ctrl-drag increment-by-1** for single-cell numeric sources.
+- **No shrink-fill** (dragging the handle inward to delete part of the source).
+
+### Service worker
+
+- VERSION bumped to 0.4.3.
+
+### Tests
+
+- 107 + 29 unchanged. Fill logic is integration-heavy (DOM + state); the underlying shift primitives are already covered by the 107 formula tests.
+
 ## [0.4.2] — 2026-05-16 — "byteDoc code blocks + image drop"
 
 byteDoc was the leaner of the two apps. This release closes the feature
