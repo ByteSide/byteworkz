@@ -242,15 +242,97 @@
     cursor: nwse-resize;
 }
 
-/* Print */
+/* ============================================================
+   PRINT — byteDoc-specific. Strip the editor chrome, force black-on-
+   white for printer-friendly output, prevent ugly page breaks inside
+   structural blocks (tables, code, blockquotes, images, headings).
+   ============================================================ */
 @media print {
-    .topbar, .doc-toolbar, .tabs-bar, .doc-find-bar, .status-bar { display: none !important; }
-    .doc-editor-wrap { padding: 0; background: white; }
-    .doc-editor {
-        background: white; color: black;
-        box-shadow: none; border: 0;
-        max-width: none;
-        padding: 0;
+    .doc-toolbar, .tabs-bar, .doc-find-bar, .status-bar { display: none !important; }
+    .doc-shell { display: block !important; height: auto !important; }
+    .doc-editor-wrap {
+        padding: 0 !important;
+        background: #fff !important;
+        overflow: visible !important;
+        height: auto !important;
     }
-    .doc-editor a { color: #0066cc; }
+    .doc-editor {
+        background: #fff !important;
+        color: #000 !important;
+        box-shadow: none !important;
+        border: 0 !important;
+        outline: none !important;
+        max-width: none !important;
+        padding: 0 !important;
+        font-size: 11pt;
+        line-height: 1.5;
+        animation: none !important;
+    }
+    .doc-editor h1, .doc-editor h2, .doc-editor h3, .doc-editor h4 {
+        page-break-after: avoid;
+        break-after: avoid;
+        color: #000;
+    }
+    .doc-editor h1 { font-size: 22pt; }
+    .doc-editor h2 { font-size: 16pt; }
+    .doc-editor h3 { font-size: 13pt; }
+    .doc-editor p { orphans: 3; widows: 3; }
+    .doc-editor a {
+        color: #0033aa !important;
+        text-decoration: underline !important;
+    }
+    .doc-editor img {
+        max-width: 100% !important;
+        max-height: 80vh;
+        page-break-inside: avoid;
+        break-inside: avoid;
+        box-shadow: none !important;
+    }
+    .doc-editor table {
+        page-break-inside: avoid;
+        break-inside: avoid;
+        box-shadow: none !important;
+    }
+    .doc-editor table td, .doc-editor table th {
+        border: 1px solid #888 !important;
+        background: #fff !important;
+        color: #000 !important;
+    }
+    .doc-editor table th {
+        background: #f0f0f0 !important;
+        font-weight: 600;
+    }
+    .doc-editor blockquote {
+        page-break-inside: avoid;
+        break-inside: avoid;
+        background: #f8f8f8 !important;
+        border-left: 3px solid #888 !important;
+        color: #333 !important;
+        font-style: italic;
+    }
+    .doc-editor pre {
+        page-break-inside: avoid;
+        break-inside: avoid;
+        background: #f5f5f5 !important;
+        border: 1px solid #ccc !important;
+        border-left: 3px solid #888 !important;
+        color: #000 !important;
+        font-size: 9.5pt;
+    }
+    .doc-editor pre code, .doc-editor code {
+        background: transparent !important;
+        color: #000 !important;
+        border: 0 !important;
+    }
+    .doc-editor code {
+        font-family: ui-monospace, "Courier New", monospace;
+        font-size: 0.92em;
+    }
+    /* Strip transient UI artifacts from print output */
+    .doc-editor mark.find-hit {
+        background: transparent !important;
+        color: inherit !important;
+        box-shadow: none !important;
+    }
+    .img-resize-overlay { display: none !important; }
 }

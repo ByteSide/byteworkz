@@ -1,6 +1,6 @@
 {
-  "version": "0.4.4",
+  "version": "0.4.5",
   "date": "2026-05-16",
-  "build": "sheet-undo",
+  "build": "print-polish",
   "apps": ["byteDoc", "byteSheet"]
 }

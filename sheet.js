@@ -279,6 +279,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="save"       title="Download JSON (Ctrl+S)">⤓</button>
         <button class="btn-icon" data-action="open"       title="Open file (Ctrl+O)">⤒</button>
         <button class="btn-icon" data-action="export-csv" title="Export CSV">CSV</button>
+        <button class="btn-icon" data-action="print"      title="Print (Ctrl+P)">⎙</button>
     </div>`;
 }
 
@@ -307,6 +308,7 @@ function handleAction(action) {
         case 'save':         return doDownload();
         case 'open':         return doOpen();
         case 'export-csv':   return doExportCSV();
+        case 'print':        return window.print();
         case 'sort-asc':     return sortByActiveCol(true);
         case 'sort-desc':    return sortByActiveCol(false);
         case 'filter':       return showFilterPopover();

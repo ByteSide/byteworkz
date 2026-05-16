@@ -270,6 +270,102 @@
 .chart-box .chart-head .chart-close:hover { background: rgba(255, 95, 87, 0.15); color: var(--danger); }
 .chart-box canvas { flex: 1; display: block; }
 
+/* ============================================================
+   PRINT — byteSheet-specific. Strip the chrome (toolbar, formula
+   bar, sheet tabs, status bar, fill handle), force black-on-white
+   for printer output, but keep cell-level user formatting (bold,
+   italic, alignment) so a formatted budget still LOOKS like a
+   budget on paper.
+
+   Only the currently-active sheet is in the DOM — multi-sheet docs
+   print just that sheet. To print another sheet, switch to it
+   first then Ctrl+P. (Honest limitation; sheets aren't lazy.)
+   ============================================================ */
+@media print {
+    .sheet-toolbar,
+    .sheet-formula-bar,
+    .sheet-tabs,
+    .status-bar,
+    .fill-handle {
+        display: none !important;
+    }
+    .sheet-shell { display: block !important; height: auto !important; }
+    .sheet-grid-wrap {
+        overflow: visible !important;
+        background: #fff !important;
+        height: auto !important;
+        position: static !important;
+    }
+    .sheet-grid {
+        color: #000 !important;
+        font-size: 9.5pt;
+    }
+    .sheet-grid th, .sheet-grid td {
+        border: 1px solid #aaa !important;
+        background: #fff !important;
+        color: #000 !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }
+    .sheet-grid th {
+        background: #f0f0f0 !important;
+        color: #333 !important;
+        font-weight: 600;
+        /* Repeat header row on every print page — browsers honour this for
+         * thead in CSS-paged tables. */
+        page-break-inside: avoid;
+    }
+    /* Reset selection / active-header / range visuals — they don't belong
+     * on paper. */
+    .sheet-grid td.sel,
+    .sheet-grid td.in-range,
+    .sheet-grid td.fill-preview,
+    .sheet-grid th.is-active-header,
+    .sheet-grid thead th.is-active-header,
+    .sheet-grid tbody th.row-head.is-active-header {
+        outline: none !important;
+        background: #fff !important;
+        color: #000 !important;
+        box-shadow: none !important;
+    }
+    .sheet-grid thead th.is-active-header,
+    .sheet-grid tbody th.row-head.is-active-header {
+        background: #f0f0f0 !important;
+        color: #333 !important;
+    }
+    /* Error cells still get a print-visible signal. */
+    .sheet-grid td.has-error {
+        color: #aa0000 !important;
+        background: #ffeeee !important;
+    }
+    /* User cell formatting carries over to print: bold, italic, alignment.
+     * User-chosen background/text colors are intentionally kept (so a
+     * budget's accent-orange header still reads as a header on paper).
+     * Trade-off: extreme dark backgrounds may print badly — that's the
+     * user's call when picking colors. */
+    .sheet-grid td.is-bold   { font-weight: 700 !important; }
+    .sheet-grid td.is-italic { font-style: italic !important; }
+    .sheet-grid td.al-l { text-align: left !important; }
+    .sheet-grid td.al-c { text-align: center !important; }
+    .sheet-grid td.al-r { text-align: right !important; }
+    .sheet-grid td.is-number { text-align: right !important; }
+
+    /* Charts: white-bg box, visible border, canvas stays as-is. */
+    .chart-box {
+        background: #fff !important;
+        border: 1px solid #888 !important;
+        box-shadow: none !important;
+        color: #000 !important;
+        page-break-inside: avoid;
+    }
+    .chart-box .chart-head {
+        background: #f0f0f0 !important;
+        color: #000 !important;
+        border-bottom: 1px solid #aaa !important;
+    }
+    .chart-box .chart-close { display: none !important; }
+}
+
 /* Filter dropdown */
 .filter-popover {
     background: var(--surface-glass);

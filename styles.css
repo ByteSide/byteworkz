@@ -827,6 +827,38 @@ button { font: inherit; color: inherit; }
     .doc-title-input { max-width: 160px; }
 }
 
+/* ============================================================
+   PRINT — shared rules. App-specific print CSS lives in doc.css
+   and sheet.css. This block hides chrome and the hub view (the
+   user only prints document content, not navigation).
+   ============================================================ */
+@media print {
+    @page { margin: 1.5cm; }
+    html, body {
+        background: #fff !important;
+        color: #000 !important;
+        overflow: visible !important;
+        height: auto !important;
+    }
+    .topbar,
+    .toast-host,
+    .modal-host,
+    .ctx-menu,
+    .view-hub {
+        display: none !important;
+    }
+    #app-root {
+        height: auto !important;
+        overflow: visible !important;
+    }
+    .view {
+        position: static !important;
+        overflow: visible !important;
+        display: block !important;
+        animation: none !important;
+    }
+}
+
 /* Soft fade-in when a view becomes visible — keeps the route transition
  * from feeling jarring. ::view :not([hidden]) targets the just-shown view. */
 .view:not([hidden]) { animation: view-fade .22s ease-out; }

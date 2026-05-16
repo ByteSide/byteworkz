@@ -387,6 +387,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="save" title="Download JSON (Ctrl+S)">⤓</button>
         <button class="btn-icon" data-action="open" title="Open file (Ctrl+O)">⤒</button>
         <button class="btn-icon" data-action="export-html" title="Export HTML">↗</button>
+        <button class="btn-icon" data-action="print" title="Print (Ctrl+P)">⎙</button>
     </div>`;
 }
 
@@ -432,6 +433,7 @@ function handleAction(action) {
     if (action === 'save') return doDownload();
     if (action === 'open') return doOpen();
     if (action === 'export-html') return doExportHtml();
+    if (action === 'print') return window.print();
 }
 
 function doInsertCodeBlock() {

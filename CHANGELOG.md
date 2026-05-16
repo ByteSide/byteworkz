@@ -4,6 +4,54 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.5] — 2026-05-16 — "print / PDF polish"
+
+Ctrl+P now produces printer-friendly output instead of a dark-theme
+screenshot. Resume, Budget, etc. templates all print cleanly. Browser
+"Save as PDF" works as a side-effect.
+
+### Added — shared print rules (`styles.css`)
+
+- `@page { margin: 1.5cm; }` for consistent margins across browsers.
+- Force `background: #fff !important; color: #000 !important;` on `html`/`body` so the dark theme doesn't bleed into the printer (and waste ink).
+- Hide everything that isn't content: `.topbar`, `.toast-host`, `.modal-host`, `.ctx-menu`, `.view-hub`.
+- Reset view positioning + animations for print (they assume viewport-fit which doesn't apply to paged media).
+
+### byteDoc print rules (`doc.css`)
+
+- Hide editor chrome (toolbar, tabs, find bar, status bar).
+- Editor: white background, black text, no shadow, no border, full width, 11pt body / 22-16-13pt headings.
+- **Page-break-avoid** on headings (no orphaned H1 at page-bottom), tables, code blocks (`<pre>`), blockquotes, images.
+- `orphans: 3; widows: 3;` on paragraphs.
+- Code blocks: light-grey background `#f5f5f5` + thin grey border + 3px left bar in grey (not orange — printer-friendly).
+- Tables: 1px grey borders, light-grey header row.
+- Links: dark-blue with underline (printable, recognisable).
+- Strip transient artifacts: find-hit highlights become invisible, image-resize overlay hidden.
+
+### byteSheet print rules (`sheet.css`) — new
+
+byteSheet had no print CSS before; entire sheet was rendered as dark grid with gradient headers. Now:
+
+- Hide chrome: toolbar, formula bar, sheet tabs, status bar, fill handle.
+- Grid: 9.5pt, black text on white, 1px grey cell borders, light-grey headers (no gradient).
+- Reset selection / active-header / range / fill-preview visuals — they don't belong on paper.
+- **User cell formatting preserved**: bold, italic, alignment, number-format. User-chosen background/text colors carry over too (so a Budget's accent-orange header still reads as a header on paper — trade-off: extreme dark backgrounds may print badly, but that's the user's call).
+- Error cells (`#REF!` / `#DIV/0!`): visible signal in print (dark-red on light-red bg).
+- Charts: white-bg box, visible grey border, canvas renders as-is.
+- Honest limitation documented: only the active sheet prints. To print another sheet, switch to it first then Ctrl+P. (Sheets aren't lazy-loaded; printing all would need a "print all sheets" mode that re-renders each — out of scope for v0.4.x.)
+
+### Added — Print toolbar buttons
+
+- `⎙` button at the end of both byteDoc and byteSheet toolbars. Click → `window.print()`. Discoverability for users who don't know Ctrl+P. Same path as the keyboard shortcut; nothing new behavioural.
+
+### Service worker
+
+- VERSION bumped to 0.4.5.
+
+### Tests
+
+- 107 + 29 unchanged. Print stylesheets aren't unit-testable — verify manually with Ctrl+P.
+
 ## [0.4.4] — 2026-05-16 — "byteSheet undo/redo"
 
 byteSheet finally has the same snapshot-based undo that byteDoc has had
