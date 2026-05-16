@@ -147,6 +147,52 @@
 .sheet-grid td.al-c { text-align: center; }
 .sheet-grid td.al-r { text-align: right; }
 
+/* ── Frozen rows / cols ──────────────────────────────────────────────────
+ * Sticky offsets are layered on top of the existing sticky thead (top:0)
+ * and sticky row-head (left:0). The numeric offsets match the header sizes:
+ *   - thead row: 24px tall  →  frozen TR sits at top: 24px
+ *   - row-head col: 36px wide → frozen TD sits at left: 36px
+ * z-index stacking, low → high:
+ *   normal td (none), frozen row/col cell (2), frozen-col header (3),
+ *   frozen-row head (3), frozen corner / header-corner (4), sheet-corner (5).
+ * Background re-applied so content scrolling under doesn't bleed through. */
+.sheet-grid td.is-frozen-row-cell {
+    position: sticky;
+    top: 24px;
+    z-index: 2;
+    background: var(--bg);
+    border-bottom-color: var(--border-strong);
+}
+.sheet-grid td.is-frozen-col-cell {
+    position: sticky;
+    left: 36px;
+    z-index: 2;
+    background: var(--bg);
+    border-right-color: var(--border-strong);
+}
+.sheet-grid td.is-frozen-corner {
+    position: sticky;
+    top: 24px;
+    left: 36px;
+    z-index: 4;
+    background: var(--bg);
+    border-right-color: var(--border-strong);
+    border-bottom-color: var(--border-strong);
+}
+.sheet-grid tbody th.row-head.is-frozen-row-head {
+    top: 24px;
+    z-index: 3;
+    border-bottom-color: var(--border-strong);
+}
+.sheet-grid thead th.is-frozen-col-head {
+    left: 36px;
+    z-index: 3;
+    border-right-color: var(--border-strong);
+}
+/* sheet-corner already has left:0 z:3, but bump it up so it stays above
+ * frozen heads when both axes are scrolled. */
+.sheet-grid th.sheet-corner { z-index: 5; }
+
 .sheet-grid .cell-editor {
     width: 100%; height: 100%;
     border: 0; padding: 1px 7px;

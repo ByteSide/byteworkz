@@ -4,6 +4,23 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.10] — 2026-05-16 — "frozen panes"
+
+Last obvious spreadsheet feature: freeze the top row and / or first column
+so headers stay put while you scroll through long sheets.
+
+### Added
+
+- **Two toolbar toggles** in byteSheet — `⇊R` freezes the top row, `⇉C` freezes the first column. Click again to unfreeze. Both can be on simultaneously, in which case the A1 corner cell is frozen on both axes.
+- **Per-sheet state** — freeze settings live on each sheet (`sheet.freeze = { rows, cols }`), so different sheets in the same document can have different freeze configurations. Preserved in JSON save/load.
+- **CSS `position: sticky` based** — no virtualization, no JS scroll listeners. Frozen cells get `top: 24px` (below the column header row) and / or `left: 36px` (after the row-number gutter). Stacking via z-index: normal td (none) < frozen row/col cells (2) < frozen row-head & col-head (3) < frozen corner (4) < the all-corners `sheet-corner` th (5).
+- **Active button visual** — the toggle buttons get the standard `.active` class when the corresponding axis is frozen, matching the rest of the toolbar's active-state pattern.
+- **Undo carries automatically** — `commitSnapshot()` already deep-clones the entire sheets array, so freeze toggles participate in undo/redo for free without any history-stack additions.
+
+### Why this is the last "obvious" spreadsheet feature
+
+Everything else on the wishlist (named ranges, cell-merge, comments, search-all-docs) is either a usability nice-to-have or a niche power feature. Frozen panes is the last item people *expect* a spreadsheet to have on first encounter.
+
 ## [0.4.9] — 2026-05-16 — "light theme support"
 
 byteworkz was dark-only since day one. Now it follows the OS preference

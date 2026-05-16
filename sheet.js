@@ -205,6 +205,7 @@ function ensureShape(doc) {
         s.rows = s.rows || DEFAULT_ROWS;
         s.charts = s.charts || [];
         s.condFormat = s.condFormat || [];
+        s.freeze = s.freeze || { rows: 0, cols: 0 };
     });
     doc.activeSheet = Math.min(Math.max(0, doc.activeSheet || 0), doc.sheets.length - 1);
     return doc;
@@ -272,6 +273,8 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="sort-desc" title="Sort column descending">↓a</button>
         <button class="btn-icon" data-action="filter"    title="Filter column">⌄</button>
         <button class="btn-icon" data-action="cond-format" title="Conditional formatting">CF</button>
+        <button class="btn-icon" data-action="freeze-row" title="Freeze top row">⇊R</button>
+        <button class="btn-icon" data-action="freeze-col" title="Freeze first column">⇉C</button>
         <div class="btn-divider"></div>
         <button class="btn-icon" data-action="insert-chart" title="Insert chart">📊</button>
         <button class="btn-icon" data-action="insert-row"   title="Insert row above">+R</button>
@@ -316,6 +319,8 @@ function handleAction(action) {
         case 'sort-desc':    return sortByActiveCol(false);
         case 'filter':       return showFilterPopover();
         case 'cond-format':  return showCondFormatDialog();
+        case 'freeze-row':   return toggleFreezeRow();
+        case 'freeze-col':   return toggleFreezeCol();
         case 'insert-chart': return insertChartDialog();
         case 'insert-row':   return insertRowAtActive();
         case 'insert-col':   return insertColAtActive();
@@ -353,15 +358,19 @@ function setIndicator(s) {
 function renderGrid() {
     const sh = activeSheet();
     const cols = sh.cols, rows = sh.rows;
+    const fr = (sh.freeze && sh.freeze.rows) || 0;
+    const fc = (sh.freeze && sh.freeze.cols) || 0;
     let html = '';
     // header row
     html += '<thead><tr><th class="sheet-corner"></th>';
     for (let c = 1; c <= cols; c++) {
-        html += `<th data-col="${c}" style="min-width:${COL_WIDTH}px;width:${COL_WIDTH}px">${numToCol(c)}</th>`;
+        const cls = c <= fc ? ' class="is-frozen-col-head"' : '';
+        html += `<th${cls} data-col="${c}" style="min-width:${COL_WIDTH}px;width:${COL_WIDTH}px">${numToCol(c)}</th>`;
     }
     html += '</tr></thead><tbody>';
     for (let r = 1; r <= rows; r++) {
-        html += `<tr><th class="row-head" data-row="${r}">${r}</th>`;
+        const rowCls = r <= fr ? ' class="is-frozen-row"' : '';
+        html += `<tr${rowCls}><th class="row-head${r <= fr ? ' is-frozen-row-head' : ''}" data-row="${r}">${r}</th>`;
         for (let c = 1; c <= cols; c++) {
             const ref = numToCol(c) + r;
             html += `<td data-ref="${ref}"></td>`;
@@ -376,6 +385,40 @@ function renderGrid() {
     updateSelectionVisual();
     updateStatusBar();
     applyFilter();
+    updateFreezeButtonState();
+}
+
+function updateFreezeButtonState() {
+    if (!state.container) return;
+    const sh = activeSheet();
+    const fr = (sh.freeze && sh.freeze.rows) || 0;
+    const fc = (sh.freeze && sh.freeze.cols) || 0;
+    const btnR = state.container.querySelector('button[data-action="freeze-row"]');
+    const btnC = state.container.querySelector('button[data-action="freeze-col"]');
+    if (btnR) btnR.classList.toggle('active', fr > 0);
+    if (btnC) btnC.classList.toggle('active', fc > 0);
+}
+
+function toggleFreezeRow() {
+    commitEdit();
+    const sh = activeSheet();
+    sh.freeze = sh.freeze || { rows: 0, cols: 0 };
+    sh.freeze.rows = sh.freeze.rows ? 0 : 1;
+    renderGrid();
+    markDirty();
+    commitSnapshot();
+    toast(sh.freeze.rows ? 'Top row frozen' : 'Top row unfrozen');
+}
+
+function toggleFreezeCol() {
+    commitEdit();
+    const sh = activeSheet();
+    sh.freeze = sh.freeze || { rows: 0, cols: 0 };
+    sh.freeze.cols = sh.freeze.cols ? 0 : 1;
+    renderGrid();
+    markDirty();
+    commitSnapshot();
+    toast(sh.freeze.cols ? 'First column frozen' : 'First column unfrozen');
 }
 
 // Apply the active sheet's persistent filter (if any) by hiding rows whose
@@ -416,6 +459,21 @@ function paintCell(ref) {
     td.className = '';
     td.style.color = '';
     td.style.background = '';
+
+    // Re-apply freeze classes after the className reset above. Freeze state
+    // lives on the sheet, not the cell, so it must survive any cell repaint.
+    const fr = (sh.freeze && sh.freeze.rows) || 0;
+    const fc = (sh.freeze && sh.freeze.cols) || 0;
+    if (fr || fc) {
+        const [col, rowStr] = splitRef(ref);
+        const r = parseInt(rowStr, 10);
+        const cn = colToNum(col);
+        const inFR = r <= fr;
+        const inFC = cn <= fc;
+        if (inFR && inFC) td.classList.add('is-frozen-corner');
+        else if (inFR)    td.classList.add('is-frozen-row-cell');
+        else if (inFC)    td.classList.add('is-frozen-col-cell');
+    }
 
     // Compute the value we'll evaluate CF against. Empty cells get `null`
     // (so they match `empty` rules); formula errors → null (so `> 0` won't
@@ -1963,6 +2021,7 @@ function switchToSheet(idx) {
     state.selEnd = 'A1';
     renderGrid(); renderSheetTabs(); renderCharts();
     syncFormulaBar();
+    updateFreezeButtonState();
 }
 
 /* ---------------- Conditional formatting ---------------- */
