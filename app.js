@@ -20,6 +20,33 @@ window.ByteWorkz = window.ByteWorkz || { apps: [] };
 import './doc.js';     // self-registers
 import './sheet.js';   // self-registers
 
+// Apply persisted theme preference as early as possible — before any view
+// renders — so the user doesn't briefly see the default-dark variant flash
+// on a light-preferring system. Three states: 'auto' (or absent) follows
+// prefers-color-scheme; 'dark'/'light' override. Stored as bare string.
+(() => {
+    try {
+        const saved = localStorage.getItem('byteworkz.theme');
+        if (saved === 'dark' || saved === 'light') {
+            document.documentElement.setAttribute('data-theme', saved);
+        }
+        // 'auto' or null → no attribute → media-query decides.
+    } catch { /* localStorage blocked */ }
+})();
+
+export function setTheme(mode) {
+    if (mode === 'auto') {
+        document.documentElement.removeAttribute('data-theme');
+        try { localStorage.removeItem('byteworkz.theme'); } catch {}
+    } else if (mode === 'dark' || mode === 'light') {
+        document.documentElement.setAttribute('data-theme', mode);
+        try { localStorage.setItem('byteworkz.theme', mode); } catch {}
+    }
+}
+export function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') || 'auto';
+}
+
 const root = () => document.getElementById('app-root');
 const views = {
     hub:   document.querySelector('[data-view="hub"]'),
@@ -181,6 +208,7 @@ export function canInstall() { return !!_installPrompt; }
 function openAboutModal() {
     const v = topbarVersion ? topbarVersion.textContent : '';
     const installable = canInstall();
+    const theme = currentTheme();
     showModal({
         title: 'About byteworkz',
         bodyHTML: `
@@ -237,6 +265,16 @@ function openAboutModal() {
             </div>
 
             <div class="about-section">
+                <h3>Appearance</h3>
+                <div class="theme-picker">
+                    <button class="theme-pick" data-theme-set="auto"  ${theme === 'auto'  ? 'data-active' : ''}>Auto</button>
+                    <button class="theme-pick" data-theme-set="dark"  ${theme === 'dark'  ? 'data-active' : ''}>Dark</button>
+                    <button class="theme-pick" data-theme-set="light" ${theme === 'light' ? 'data-active' : ''}>Light</button>
+                </div>
+                <p style="margin:6px 0 0;font-size:11px;color:var(--fg-dim);">"Auto" follows your operating system preference.</p>
+            </div>
+
+            <div class="about-section">
                 <h3>Links</h3>
                 <div class="about-links">
                     <a href="https://github.com/ByteSide/byteworkz" target="_blank" rel="noopener noreferrer">Source on GitHub</a>
@@ -268,6 +306,15 @@ function openAboutModal() {
             const btn = modal.querySelector('#about-install-btn');
             if (btn) btn.addEventListener('click', () => {
                 if (installApp()) close();
+            });
+            // Theme picker — click sets data-theme + persists, then updates
+            // the active pill in-place (no need to re-open the modal).
+            modal.querySelectorAll('.theme-pick').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setTheme(btn.dataset.themeSet);
+                    modal.querySelectorAll('.theme-pick').forEach(b => b.removeAttribute('data-active'));
+                    btn.setAttribute('data-active', '');
+                });
             });
         }
     });

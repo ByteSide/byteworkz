@@ -4,6 +4,50 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.9] — 2026-05-16 — "light theme support"
+
+byteworkz was dark-only since day one. Now it follows the OS preference
+by default and offers an explicit override in the About modal. Same
+visual identity — just inverted palette.
+
+### Added
+
+- **Light palette** alongside the existing dark one. Inspired by GitHub / Linear / Notion light: warm white (`#ffffff` / `#f6f8fa`) surfaces, dark slate text (`#1a1f24`), restrained shadows (`rgba(20,40,60,X)` instead of pure black). Accent (`#FD7D00`) stays — brand-canonical.
+- **`data-theme` attribute on `<html>`** drives the override. `:root[data-theme="light"]` applies light tokens unconditionally; `:root[data-theme="dark"]` forces dark even on a light-preferring system; **no attribute → follows `prefers-color-scheme` media query**.
+- **Theme picker in About modal**: three pill buttons (Auto / Dark / Light). Click sets `data-theme` + persists to `localStorage.byteworkz.theme`. "Auto" removes the attribute and the saved value so the OS preference takes over again.
+- **Early-apply IIFE** at the top of `app.js` reads the saved preference before any view renders. Minimises flash-of-wrong-theme on first paint. (FOUC remains briefly possible when the user has explicitly picked a theme that conflicts with their OS — the stylesheet applies the OS-default first, then JS swaps to the preference.)
+- **`legal-lang.js`** (loaded by imprint/privacy pages) now also reads the same `byteworkz.theme` key, so legal pages match the main-app theme.
+- **`<meta name="theme-color">`** has two entries with `media` queries — mobile address-bar color matches the active theme (white on light OS, navy on dark OS).
+- **`color-scheme: dark light`** declared at the meta level so native form controls (scrollbars, color pickers) follow.
+
+### Refactor — themeable tokens
+
+Pulled out previously-hardcoded `rgba(...)` values into new semantic tokens so they can flip per theme:
+
+| Token | Dark | Light |
+|---|---|---|
+| `--input-bg` | `rgba(0,0,0,0.25)` | `rgba(0,0,0,0.03)` |
+| `--chip-bg` / `-strong` | `rgba(0,0,0,0.25/.35)` | `rgba(0,0,0,0.04/.07)` |
+| `--backdrop` (modal) | `rgba(3,10,13,0.55)` | `rgba(20,30,40,0.40)` |
+| `--grid-line` (hub) | `rgba(255,255,255,0.020)` | `rgba(0,0,0,0.025)` |
+| `--tile-grad-a/b` (hub tiles) | dark navy translucent | white / off-white translucent |
+| `--code-bg` (doc pre/code) | `var(--bg-2)` ≈ near-black | `#f4f6f8` light grey |
+| `--inset-highlight` | `rgba(255,255,255,0.04)` | `rgba(255,255,255,0.55)` (now meaningful on light surfaces) |
+| `--shadow-1/2/3` | rgba(0,0,0,…) deep | rgba(20,40,60,…) subtle |
+
+All consumers (`styles.css`, `doc.css`, `sheet.css`) now reference these tokens instead of the literals. Future component additions get free theme support if they use the tokens.
+
+### Known limitations (v1 — flagged as experimental)
+
+- **FOUC on themed users with conflicting OS preference**: ~50ms flash of OS-default before JS applies the saved override. Could be eliminated with a CSP-allowed inline script in `<head>`, but that's a deploy-config change for a marginal win.
+- **Charts use hardcoded canvas colors** (axes, labels): `rgba(255,255,255,0.12)` etc. On light theme the canvas-drawn axes will be near-invisible until next iteration. Marked as cosmetic — chart data still draws correctly.
+- **CF rule presets use brand colors that may need recalibration for light backgrounds** — Red on light = pink-ish. User can pick custom colors.
+- **Browser-test pending**: the light palette is mathematically coherent but hasn't been verified visually. Some component-level polish may surface on first real use.
+
+### Service worker
+
+- VERSION bumped to 0.4.9.
+
 ## [0.4.8] — 2026-05-16 — "byteDoc outline / TOC sidebar"
 
 Right-side TOC for long byteDoc documents. Click a heading to jump

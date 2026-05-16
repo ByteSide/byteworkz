@@ -22,6 +22,14 @@
 
     const html = document.documentElement;
 
+    // ── Theme preference (shared with the main app) ─────────────────────
+    // Pick up data-theme from localStorage so imprint/privacy match the
+    // main-app theme. 'auto' or missing = follow OS via prefers-color-scheme.
+    try {
+        const t = localStorage.getItem('byteworkz.theme');
+        if (t === 'dark' || t === 'light') html.setAttribute('data-theme', t);
+    } catch { /* localStorage blocked — falls back to OS preference */ }
+
     // ── Detection ────────────────────────────────────────────────────────
     const params = new URLSearchParams(location.search);
     const requested = params.get('lang');
