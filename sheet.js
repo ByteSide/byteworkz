@@ -42,6 +42,18 @@ const COL_WIDTH = 92;
 const ROW_HEIGHT = 22;
 const ROW_HEAD_WIDTH = 36;
 
+// Undo/redo cap. Each snapshot deep-clones the whole sheets tree
+// (~5-100KB for typical docs). Bounded memory: 100 × ~50KB = ~5MB.
+const HISTORY_LIMIT = 100;
+
+// Wrapper around structuredClone with a JSON-fallback for older browsers.
+// state.doc only contains JSON-safe types (no DOM refs, no functions), so
+// JSON.parse(JSON.stringify) is semantically equivalent — just slower.
+function deepClone(x) {
+    if (typeof structuredClone === 'function') return structuredClone(x);
+    return JSON.parse(JSON.stringify(x));
+}
+
 const state = {
     container: null,
     doc: null,
@@ -65,7 +77,8 @@ const state = {
     chartLayer: null,
     sheetTabsEl: null,
     fillHandle: null,    // DOM overlay div positioned at selection's bottom-right
-    fillDrag: null       // in-progress drag state: {srcBounds, fillRange, direction}
+    fillDrag: null,      // in-progress drag state: {srcBounds, fillRange, direction}
+    history: { stack: [], cursor: -1 }  // undo/redo linear-history stack
 };
 
 /* ---------------- Doc init ---------------- */
@@ -157,6 +170,12 @@ function mount(container, params) {
 
     document.addEventListener('keydown', onGlobalKey, true);
     state.gridWrap.focus();
+
+    // Fresh history per mount — opening a different doc shouldn't carry
+    // over undo state from the previous doc. Initial snapshot seeds the
+    // stack so the first user edit has a baseline to undo back to.
+    state.history = { stack: [], cursor: -1 };
+    commitSnapshot();
 }
 
 function unmount() {
@@ -223,6 +242,9 @@ function buildDOM() {
 function toolbarHTML() {
     return `
     <div class="toolbar sheet-toolbar">
+        <button class="btn-icon" data-action="undo" title="Undo (Ctrl+Z)">↶</button>
+        <button class="btn-icon" data-action="redo" title="Redo (Ctrl+Y)">↷</button>
+        <div class="btn-divider"></div>
         <button class="btn-icon" data-fmt="b"   title="Bold"><b>B</b></button>
         <button class="btn-icon" data-fmt="i"   title="Italic"><i>I</i></button>
         <div class="btn-divider"></div>
@@ -280,6 +302,8 @@ function bindToolbar() {
 
 function handleAction(action) {
     switch (action) {
+        case 'undo':         return undo();
+        case 'redo':         return redo();
         case 'save':         return doDownload();
         case 'open':         return doOpen();
         case 'export-csv':   return doExportCSV();
@@ -817,6 +841,7 @@ function applyFill(srcBounds, fillRange, direction) {
     fullRecompute();
     renderGrid();
     markDirty();
+    commitSnapshot();
     const count = (fillRange.c2 - fillRange.c1 + 1) * (fillRange.r2 - fillRange.r1 + 1);
     toast(`Filled ${count} cell${count === 1 ? '' : 's'}.`, { kind: 'ok', timeout: 1400 });
 }
@@ -922,6 +947,7 @@ function commitEdit() {
     state.editorEl = null;
     setCellValueFromInput(state.activeRef, raw);
     syncFormulaBar();
+    commitSnapshot();
 }
 function cancelEdit() {
     if (!state.editing) return;
@@ -972,6 +998,7 @@ function bindFormulaBar() {
         if (e.key === 'Enter') {
             e.preventDefault();
             setCellValueFromInput(state.activeRef, state.formulaInput.value);
+            commitSnapshot();
             state.gridWrap.focus();
             moveActive(0, e.shiftKey ? -1 : 1);
         } else if (e.key === 'Escape') {
@@ -1035,6 +1062,11 @@ function onGlobalKey(e) {
         const k = e.key.toLowerCase();
         if (k === 's') { e.preventDefault(); doDownload(); return; }
         if (k === 'o') { e.preventDefault(); doOpen(); return; }
+        // Undo/redo: only when not in a field — inside title/formula-bar we
+        // let the browser's native input undo win (text-input undo within
+        // the field is more useful than restoring an older sheet state).
+        if (k === 'z' && !e.shiftKey && !inField) { e.preventDefault(); undo(); return; }
+        if (!inField && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
         if (k === 'c' && !inField) { e.preventDefault(); doCopy(); return; }
         if (k === 'x' && !inField) { e.preventDefault(); doCut(); return; }
         if (k === 'v' && !inField) { e.preventDefault(); doPaste(); return; }
@@ -1304,6 +1336,7 @@ function toggleFormat(field) {
         paintCell(ref);
     });
     markDirty();
+    commitSnapshot();
 }
 function setAlign(a) {
     const sh = activeSheet();
@@ -1314,6 +1347,7 @@ function setAlign(a) {
         paintCell(ref);
     });
     markDirty();
+    commitSnapshot();
 }
 function setStyleField(field, value) {
     const sh = activeSheet();
@@ -1324,6 +1358,7 @@ function setStyleField(field, value) {
         paintCell(ref);
     });
     markDirty();
+    commitSnapshot();
 }
 function clearFormat() {
     const sh = activeSheet();
@@ -1335,6 +1370,7 @@ function clearFormat() {
         }
     });
     markDirty();
+    commitSnapshot();
 }
 function clearSelection() {
     const sh = activeSheet();
@@ -1351,6 +1387,7 @@ function clearSelection() {
     });
     syncFormulaBar();
     markDirty();
+    commitSnapshot();
 }
 function selectAll() {
     const sh = activeSheet();
@@ -1418,6 +1455,7 @@ async function doPaste() {
         });
     });
     markDirty();
+    commitSnapshot();
 }
 
 /* ---------------- Insert/delete rows + cols ---------------- */
@@ -1462,6 +1500,7 @@ function renameSheet(idx, newName) {
     fullRecompute();
     renderSheetTabs();
     markDirty();
+    commitSnapshot();
     return true;
 }
 
@@ -1563,6 +1602,7 @@ function insertRowAtActive() {
     fullRecompute();
     renderGrid();
     markDirty();
+    commitSnapshot();
 }
 function insertColAtActive() {
     const [c] = splitRef(state.activeRef);
@@ -1587,6 +1627,7 @@ function insertColAtActive() {
     fullRecompute();
     renderGrid();
     markDirty();
+    commitSnapshot();
 }
 function deleteActiveRow() {
     const [, r] = splitRef(state.activeRef);
@@ -1615,6 +1656,7 @@ function deleteActiveRow() {
     fullRecompute();
     renderGrid();
     markDirty();
+    commitSnapshot();
 }
 function deleteActiveCol() {
     const [c] = splitRef(state.activeRef);
@@ -1643,6 +1685,7 @@ function deleteActiveCol() {
     fullRecompute();
     renderGrid();
     markDirty();
+    commitSnapshot();
 }
 
 /* ---------------- Sort / filter ---------------- */
@@ -1699,6 +1742,7 @@ function sortByActiveCol(asc) {
     fullRecompute();
     renderGrid();
     markDirty();
+    commitSnapshot();
     toast(`Sorted column ${c} ${asc ? 'ascending' : 'descending'}.`, { kind: 'ok' });
 }
 function cmpVal(a, b) {
@@ -1742,6 +1786,7 @@ function showFilterPopover() {
             delete sh.filter;
             renderGrid();
             markDirty();
+            commitSnapshot();
             toast('Filter cleared.', { kind: 'ok' });
             close();
         }});
@@ -1757,6 +1802,7 @@ function showFilterPopover() {
         }
         renderGrid();
         markDirty();
+        commitSnapshot();
         close();
         toast(sh.filter ? `Filter on ${c} applied.` : 'Filter cleared.', { kind: 'ok' });
     }});
@@ -1819,6 +1865,7 @@ function renderSheetTabs() {
                     state.doc.sheets.splice(idx + 1, 0, copy);
                     renderSheetTabs();
                     markDirty();
+                    commitSnapshot();
                 } },
                 { sep: true },
                 { label: 'Delete sheet', onClick: async () => {
@@ -1846,6 +1893,7 @@ function renderSheetTabs() {
                     fullRecompute();
                     renderGrid(); renderSheetTabs(); renderCharts();
                     markDirty();
+                    commitSnapshot();
                 } }
             ]);
         });
@@ -1860,6 +1908,7 @@ function renderSheetTabs() {
         state.doc.activeSheet = state.doc.sheets.length - 1;
         renderGrid(); renderSheetTabs(); renderCharts();
         markDirty();
+        commitSnapshot();
     });
     state.sheetTabsEl.appendChild(add);
 }
@@ -1924,6 +1973,7 @@ async function insertChartDialog() {
                 activeSheet().charts.push(chart);
                 renderCharts();
                 markDirty();
+                commitSnapshot();
                 close();
             } }
         ]
@@ -1956,6 +2006,7 @@ function renderCharts() {
             sh.charts = sh.charts.filter(x => x.id !== ch.id);
             renderCharts();
             markDirty();
+            commitSnapshot();
         });
 
         // Drag
@@ -1974,6 +2025,7 @@ function renderCharts() {
                 document.removeEventListener('mousemove', onMove);
                 document.removeEventListener('mouseup', onUp);
                 markDirty();
+                commitSnapshot();
             };
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);
@@ -2203,6 +2255,7 @@ function importCSVToCurrentDoc(text, filename) {
     renderCharts();
     syncFormulaBar();
     markDirty();
+    commitSnapshot();
     const truncated = rows.length > rowsLoaded
         ? ` (truncated from ${rows.length} rows)`
         : '';
@@ -2281,6 +2334,84 @@ function updateStatusBar() {
     parts.push(`<span class="spacer"></span>`);
     parts.push(`<span class="status-brand">byteSheet</span>`);
     state.statusBar.innerHTML = parts.join('');
+}
+
+/* ---------------- Undo / Redo (snapshot stack) ----------------
+ *
+ * Linear history pattern, same shape as byteDoc's per-tab undo from v0.2.2:
+ *   stack[cursor] is the CURRENT state. Undo decrements cursor and restores.
+ *   Redo advances. A fresh commit truncates everything past cursor (kills
+ *   the redo-branch). Cap at HISTORY_LIMIT to bound memory.
+ *
+ * Snapshot scope:
+ *   - state.doc.sheets (cells, charts, filter, sheet names, cols/rows)
+ *   - state.doc.activeSheet (which sheet is in view)
+ *   - state.activeRef / selStart / selEnd (UI cursor + selection)
+ *   NOT in snapshot: state.doc.title — title rename is treated as metadata
+ *   (Excel-style, not undoable). Preserved across restores.
+ *
+ * Snapshot trigger: end of every USER-FACING mutation. Not inside
+ * lower-level helpers like setCellValueFromInput (which would over-snapshot
+ * during batch paste / fill / CSV import). Callers commit once per action.
+ */
+
+function captureSnapshot() {
+    return {
+        sheets: deepClone(state.doc.sheets),
+        activeSheet: state.doc.activeSheet,
+        activeRef: state.activeRef,
+        selStart: state.selStart,
+        selEnd: state.selEnd
+    };
+}
+
+function commitSnapshot() {
+    const snap = captureSnapshot();
+    const h = state.history;
+    // Dedup: skip the commit if state is identical to the current cursor
+    // entry. Cheap-ish JSON.stringify compare — for typical sheets ~1-5ms.
+    // Prevents pressing Enter on an unchanged cell from spamming the stack.
+    if (h.cursor >= 0) {
+        const prev = h.stack[h.cursor];
+        if (JSON.stringify(prev) === JSON.stringify(snap)) return;
+    }
+    // Truncate redo branch — once the user makes a new change after undoing,
+    // the previously-redoable future is gone.
+    h.stack = h.stack.slice(0, h.cursor + 1);
+    h.stack.push(snap);
+    h.cursor++;
+    if (h.stack.length > HISTORY_LIMIT) {
+        h.stack.shift();
+        h.cursor--;
+    }
+}
+
+function restoreSnapshot(snap) {
+    // Title is preserved across restores (not in snapshot). Everything else
+    // gets rebuilt from the snapshot, then dep-graph + visuals refresh.
+    state.doc.sheets = deepClone(snap.sheets);
+    state.doc.activeSheet = snap.activeSheet;
+    state.activeRef = snap.activeRef;
+    state.selStart = snap.selStart;
+    state.selEnd = snap.selEnd;
+    fullRecompute();
+    renderGrid();
+    renderSheetTabs();
+    renderCharts();
+    syncFormulaBar();
+    markDirty();
+    if (state.gridWrap) state.gridWrap.focus();
+}
+
+function undo() {
+    if (state.history.cursor <= 0) return;
+    state.history.cursor--;
+    restoreSnapshot(state.history.stack[state.history.cursor]);
+}
+function redo() {
+    if (state.history.cursor >= state.history.stack.length - 1) return;
+    state.history.cursor++;
+    restoreSnapshot(state.history.stack[state.history.cursor]);
 }
 
 /* ---------------- Register ---------------- */

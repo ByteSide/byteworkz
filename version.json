@@ -1,6 +1,6 @@
 {
-  "version": "0.4.3",
+  "version": "0.4.4",
   "date": "2026-05-16",
-  "build": "fill-down",
+  "build": "sheet-undo",
   "apps": ["byteDoc", "byteSheet"]
 }

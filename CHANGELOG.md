@@ -4,6 +4,51 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.4] — 2026-05-16 — "byteSheet undo/redo"
+
+byteSheet finally has the same snapshot-based undo that byteDoc has had
+since v0.2.2. Closes the last big "modern app convention" gap. A bad
+fill-drag, sort, paste, or accidental Delete-key is now reversible.
+
+### Added
+
+- **`state.history = { stack, cursor }`** linear-history stack, cap **100 entries**. Each entry is a `deepClone` of `state.doc.sheets` + `activeSheet` + UI selection (`activeRef` / `selStart` / `selEnd`). Title intentionally excluded — title rename is metadata, preserved across restores.
+- **`commitSnapshot()`** called at the end of every user-facing mutation:
+  - Cell edit commit (cell-editor Enter/Tab, formula-bar Enter)
+  - Delete-key / `clearSelection`
+  - TSV paste (`doPaste`)
+  - Format ops (`toggleFormat` / `setAlign` / `setStyleField` / `clearFormat`)
+  - Sort, Filter Apply, Filter Clear
+  - Insert/Delete row + col
+  - **Fill-down** (the v0.4.3 feature is now undoable)
+  - Sheet rename / duplicate / delete / add
+  - Chart insert / delete / drag-end
+  - CSV import (creates a new sheet)
+- **Dedup**: snapshots identical to the current cursor entry are skipped via JSON.stringify compare. Prevents Enter-on-unchanged-cell from polluting the stack.
+- **Toolbar buttons** ↶ Undo / ↷ Redo at the very left of the byteSheet toolbar, with separator before format buttons.
+- **Keyboard**: `Ctrl+Z` undo, `Ctrl+Y` and `Ctrl+Shift+Z` redo. Gated by `!inField` — when the user is in the title input, formula bar, or cell editor, browser-native text undo wins (text within a field is more useful to undo there than restoring an older sheet state).
+- **Mount-time reset**: each new doc load starts a fresh history with the loaded state as `stack[0]`. Navigating away then back wipes the stack — undo history doesn't bleed across docs.
+
+### Architecture
+
+- **Snapshot pattern**: linear history with truncation, same shape as `doc.js`'s per-tab undo. `commitSnapshot` is idempotent on identical state.
+- **Why end-of-action, not before-action?** Low-level helpers like `setCellValueFromInput` are called in batches (paste loops, fill loops, CSV import). Committing inside each would over-snapshot. Instead, only user-facing entry points commit. Less code, cleaner stack.
+- **`deepClone`** wraps `structuredClone` with a `JSON.parse(JSON.stringify)` fallback for browsers without it (older Safari). `state.doc` is JSON-safe (no DOM refs, no functions), so semantics match.
+- **Memory**: 100 × ~50KB typical snapshot = ~5MB worst-case in-memory. Not persisted to localStorage.
+
+### Known limitations
+
+- **Title rename not undoable** (excluded by design; matches Excel-style metadata vs. cell-data distinction).
+- **Sheet view switch not snapshotted** (view-only navigation — would pollute the stack with non-data changes). But `activeSheet` IS in each snapshot, so undo CAN switch sheets if the undone edit was on another sheet (so the user sees where the change happened).
+
+### Tests
+
+- 107 + 29 unchanged. Snapshot/restore is DOM-state heavy; not unit-testable in isolation without mocking the full grid lifecycle.
+
+### Service worker
+
+- VERSION bumped to 0.4.4.
+
 ## [0.4.3] — 2026-05-16 — "byteSheet fill-down handle"
 
 The drag-the-corner gesture every spreadsheet user expects. Closes the
