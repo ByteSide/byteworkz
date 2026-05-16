@@ -27,6 +27,7 @@ import {
 } from './ui.js';
 import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, refToString, rangeToString, shiftRef, shiftRange } from './sheet-formula.js';
 import { parseCSV, csvToCellsObj } from './csv.js';
+import { evaluateCondRule, refInCondRange, shiftRangeStr, describeRule } from './cond-format.js';
 
 // Siehe Kommentar in doc.js — Registry-Bootstrap idempotent in jedem App-Modul.
 window.ByteWorkz = window.ByteWorkz || { apps: [] };
@@ -203,6 +204,7 @@ function ensureShape(doc) {
         s.cols = s.cols || DEFAULT_COLS;
         s.rows = s.rows || DEFAULT_ROWS;
         s.charts = s.charts || [];
+        s.condFormat = s.condFormat || [];
     });
     doc.activeSheet = Math.min(Math.max(0, doc.activeSheet || 0), doc.sheets.length - 1);
     return doc;
@@ -269,6 +271,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="sort-asc"  title="Sort column ascending">↑a</button>
         <button class="btn-icon" data-action="sort-desc" title="Sort column descending">↓a</button>
         <button class="btn-icon" data-action="filter"    title="Filter column">⌄</button>
+        <button class="btn-icon" data-action="cond-format" title="Conditional formatting">CF</button>
         <div class="btn-divider"></div>
         <button class="btn-icon" data-action="insert-chart" title="Insert chart">📊</button>
         <button class="btn-icon" data-action="insert-row"   title="Insert row above">+R</button>
@@ -312,6 +315,7 @@ function handleAction(action) {
         case 'sort-asc':     return sortByActiveCol(true);
         case 'sort-desc':    return sortByActiveCol(false);
         case 'filter':       return showFilterPopover();
+        case 'cond-format':  return showCondFormatDialog();
         case 'insert-chart': return insertChartDialog();
         case 'insert-row':   return insertRowAtActive();
         case 'insert-col':   return insertColAtActive();
@@ -412,31 +416,56 @@ function paintCell(ref) {
     td.className = '';
     td.style.color = '';
     td.style.background = '';
-    if (!cell) { td.textContent = ''; return; }
 
+    // Compute the value we'll evaluate CF against. Empty cells get `null`
+    // (so they match `empty` rules); formula errors → null (so `> 0` won't
+    // match an #ERROR! cell); raw values pass through verbatim.
     let display = '';
     let hasError = false;
-    if (cell.f != null) {
-        const k = state.doc.activeSheet + '!' + ref;
-        const c = state.computed.get(k);
-        if (c && c.error) { display = c.value; hasError = true; }
-        else if (c) display = formatValue(c.value, cell.s);
-        else display = '';
+    let condValue = null;
+    if (cell) {
+        if (cell.f != null) {
+            const k = state.doc.activeSheet + '!' + ref;
+            const c = state.computed.get(k);
+            if (c && c.error) { display = c.value; hasError = true; }
+            else if (c) { display = formatValue(c.value, cell.s); condValue = c.value; }
+            else display = '';
+        } else {
+            display = formatValue(cell.v, cell.s);
+            condValue = cell.v;
+        }
+        td.textContent = display;
+        const isNum = isNumericDisplay(cell, display);
+        if (isNum) td.classList.add('is-number');
+        if (cell.s) {
+            if (cell.s.b) td.classList.add('is-bold');
+            if (cell.s.i) td.classList.add('is-italic');
+            if (cell.s.a) td.classList.add('al-' + cell.s.a);
+            if (cell.s.c)  td.style.color = cell.s.c;
+            if (cell.s.bg) td.style.background = cell.s.bg;
+        }
+        if (hasError) td.classList.add('has-error');
     } else {
-        display = formatValue(cell.v, cell.s);
+        td.textContent = '';
     }
 
-    td.textContent = display;
-    const isNum = isNumericDisplay(cell, display);
-    if (isNum) td.classList.add('is-number');
-    if (cell.s) {
-        if (cell.s.b) td.classList.add('is-bold');
-        if (cell.s.i) td.classList.add('is-italic');
-        if (cell.s.a) td.classList.add('al-' + cell.s.a);
-        if (cell.s.c)  td.style.color = cell.s.c;
-        if (cell.s.bg) td.style.background = cell.s.bg;
+    // Conditional-format rules — applied AFTER the user's cell.s so a
+    // matching rule overrides user style for that cell. Matches Excel-
+    // style precedence: CF wins until the user manually re-styles a cell
+    // outside the rule range (in which case the rule no longer applies).
+    // refInCondRange is a cheap bounds check first; evaluateCondRule
+    // only runs if the cell is actually in range.
+    if (sh.condFormat && sh.condFormat.length) {
+        for (const cf of sh.condFormat) {
+            if (!refInCondRange(ref, cf.range)) continue;
+            if (!evaluateCondRule(condValue, cf.rule)) continue;
+            const s = cf.style || {};
+            if (s.bg) td.style.background = s.bg;
+            if (s.c)  td.style.color = s.c;
+            if (s.b)  td.classList.add('is-bold');
+            if (s.i)  td.classList.add('is-italic');
+        }
     }
-    if (hasError) td.classList.add('has-error');
 }
 
 function isNumericDisplay(cell, display) {
@@ -1533,7 +1562,9 @@ function shiftChartRange(chart, rowOp, colOp) {
 }
 
 // Apply chart-range shifts to every chart referencing the modified sheet,
-// and update the filter column if present.
+// update the filter column if present, and shift every condFormat rule's
+// range string. All three storage shapes get the SAME row/col deltas so
+// inserting a row above your formatted range walks the range down by one.
 function shiftChartsAndFilter({ rowOp, colOp, modifiedSheetIdx }) {
     state.doc.sheets.forEach(sh => {
         if (!sh.charts || !sh.charts.length) return;
@@ -1542,15 +1573,23 @@ function shiftChartsAndFilter({ rowOp, colOp, modifiedSheetIdx }) {
             return shiftChartRange(ch, rowOp, colOp);
         });
     });
+    const modSheet = state.doc.sheets[modifiedSheetIdx];
     // Filter.col tracks column letter — only colOp affects it.
-    if (colOp) {
-        const sh = state.doc.sheets[modifiedSheetIdx];
-        if (sh.filter) {
-            const fcn = colToNum(sh.filter.col);
-            const newFcn = colOp(fcn);
-            if (newFcn === null) delete sh.filter;
-            else sh.filter.col = numToCol(newFcn);
-        }
+    if (colOp && modSheet && modSheet.filter) {
+        const fcn = colToNum(modSheet.filter.col);
+        const newFcn = colOp(fcn);
+        if (newFcn === null) delete modSheet.filter;
+        else modSheet.filter.col = numToCol(newFcn);
+    }
+    // Conditional-format ranges — drop rules whose range is fully invalidated
+    // (op returns null for any endpoint), otherwise update the range string.
+    if (modSheet && modSheet.condFormat && modSheet.condFormat.length) {
+        modSheet.condFormat = modSheet.condFormat.filter(cf => {
+            const newRange = shiftRangeStr(cf.range, rowOp, colOp);
+            if (!newRange) return false;
+            cf.range = newRange;
+            return true;
+        });
     }
 }
 
@@ -1924,6 +1963,185 @@ function switchToSheet(idx) {
     state.selEnd = 'A1';
     renderGrid(); renderSheetTabs(); renderCharts();
     syncFormulaBar();
+}
+
+/* ---------------- Conditional formatting ---------------- */
+
+async function showCondFormatDialog() {
+    const sh = activeSheet();
+    sh.condFormat = sh.condFormat || [];
+    const b = selectionBounds();
+    const defaultRange = (b.c1 === b.c2 && b.r1 === b.r2)
+        ? `${numToCol(b.c1)}${b.r1}`
+        : `${numToCol(b.c1)}${b.r1}:${numToCol(b.c2)}${b.r2}`;
+
+    const existingHTML = sh.condFormat.length
+        ? sh.condFormat.map(r => `
+            <div class="cf-rule-row">
+                <span class="cf-rule-preview" style="background:${escapeHtml(r.style.bg || '#222')};color:${escapeHtml(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
+                <span class="cf-rule-desc">${escapeHtml(describeRule(r.rule))}</span>
+                <button class="btn-icon cf-rule-delete" data-id="${escapeHtml(r.id)}" title="Delete rule" type="button">✕</button>
+            </div>
+        `).join('')
+        : '<p class="cf-empty">No rules yet — add one above.</p>';
+
+    await showModal({
+        title: 'Conditional formatting',
+        bodyHTML: `
+            <label>Apply to range</label>
+            <input type="text" id="cf-range" value="${escapeHtml(defaultRange)}" placeholder="A1 or A1:B10">
+            <label>When cell value is</label>
+            <select id="cf-type">
+                <option value="gt">Greater than</option>
+                <option value="lt">Less than</option>
+                <option value="gte">Greater than or equal</option>
+                <option value="lte">Less than or equal</option>
+                <option value="eq">Equal to</option>
+                <option value="neq">Not equal to</option>
+                <option value="between">Between</option>
+                <option value="contains">Contains text</option>
+                <option value="empty">Is empty</option>
+                <option value="notempty">Is not empty</option>
+            </select>
+            <div class="modal-row" id="cf-values-row">
+                <input type="text" id="cf-value"  placeholder="Value">
+                <input type="text" id="cf-value2" placeholder="Upper bound" hidden>
+            </div>
+            <label>Format</label>
+            <div class="cf-presets">
+                <button class="cf-preset" data-bg="#ff5f57" data-c="#ffffff" style="background:#ff5f57;color:#fff" type="button">Red</button>
+                <button class="cf-preset" data-bg="#febc2e" data-c="#000000" style="background:#febc2e;color:#000" type="button">Yellow</button>
+                <button class="cf-preset" data-bg="#27ca40" data-c="#ffffff" style="background:#27ca40;color:#fff" type="button">Green</button>
+                <button class="cf-preset" data-bg="#3aa8ff" data-c="#ffffff" style="background:#3aa8ff;color:#fff" type="button">Blue</button>
+                <button class="cf-preset" data-bg="#FD7D00" data-c="#ffffff" style="background:#FD7D00;color:#fff" type="button">Accent</button>
+            </div>
+            <div class="modal-row">
+                <div><label>Background</label><input type="color" id="cf-bg" value="#ff5f57"></div>
+                <div><label>Text color</label><input type="color" id="cf-c" value="#ffffff"></div>
+            </div>
+            <label class="cf-bold-toggle">
+                <input type="checkbox" id="cf-bold"> Bold text
+            </label>
+            <hr class="cf-sep">
+            <label>Active rules on this sheet</label>
+            <div id="cf-existing" class="cf-rules-list">${existingHTML}</div>
+        `,
+        actions: [
+            { label: 'Close', kind: 'secondary' },
+            { label: 'Add rule', kind: 'primary', onClick: (close) => {
+                const newRule = buildCondRuleFromModal();
+                if (!newRule) return;
+                sh.condFormat.push(newRule);
+                paintAllCells();
+                updateSelectionVisual();
+                markDirty();
+                commitSnapshot();
+                toast('Rule added.', { kind: 'ok' });
+                close();
+            } }
+        ],
+        onMount: (modal) => {
+            // Show/hide value inputs based on rule type
+            const typeSel = modal.querySelector('#cf-type');
+            const v1 = modal.querySelector('#cf-value');
+            const v2 = modal.querySelector('#cf-value2');
+            const valuesRow = modal.querySelector('#cf-values-row');
+            const sync = () => {
+                const t = typeSel.value;
+                if (t === 'between') {
+                    valuesRow.hidden = false;
+                    v2.hidden = false;
+                    v1.placeholder = 'Lower bound';
+                    v2.placeholder = 'Upper bound';
+                } else if (t === 'empty' || t === 'notempty') {
+                    valuesRow.hidden = true;
+                } else {
+                    valuesRow.hidden = false;
+                    v2.hidden = true;
+                    v1.placeholder = t === 'contains' ? 'Text' : 'Value';
+                }
+            };
+            sync();
+            typeSel.addEventListener('change', sync);
+            // Presets fill the color inputs
+            modal.querySelectorAll('.cf-preset').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    modal.querySelector('#cf-bg').value = btn.dataset.bg;
+                    modal.querySelector('#cf-c').value  = btn.dataset.c;
+                });
+            });
+            // Delete existing rule
+            modal.querySelectorAll('.cf-rule-delete').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const id = btn.dataset.id;
+                    sh.condFormat = sh.condFormat.filter(r => r.id !== id);
+                    paintAllCells();
+                    updateSelectionVisual();
+                    markDirty();
+                    commitSnapshot();
+                    // Re-render the existing-rules list inline so the user
+                    // sees the deletion without closing/reopening the modal.
+                    const list = modal.querySelector('#cf-existing');
+                    if (sh.condFormat.length) {
+                        list.innerHTML = sh.condFormat.map(r => `
+                            <div class="cf-rule-row">
+                                <span class="cf-rule-preview" style="background:${escapeHtml(r.style.bg || '#222')};color:${escapeHtml(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
+                                <span class="cf-rule-desc">${escapeHtml(describeRule(r.rule))}</span>
+                                <button class="btn-icon cf-rule-delete" data-id="${escapeHtml(r.id)}" title="Delete rule" type="button">✕</button>
+                            </div>
+                        `).join('');
+                        // Re-bind delete handlers on the new buttons
+                        list.querySelectorAll('.cf-rule-delete').forEach(b2 => {
+                            b2.addEventListener('click', btn.onclick);
+                        });
+                    } else {
+                        list.innerHTML = '<p class="cf-empty">No rules yet — add one above.</p>';
+                    }
+                });
+            });
+        }
+    });
+}
+
+function buildCondRuleFromModal() {
+    const range = document.getElementById('cf-range').value.trim().toUpperCase();
+    if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/.test(range)) {
+        toast('Invalid range. Use A1 or A1:B10.', { kind: 'error' });
+        return null;
+    }
+    const type = document.getElementById('cf-type').value;
+    const bg = document.getElementById('cf-bg').value;
+    const c  = document.getElementById('cf-c').value;
+    const bold = document.getElementById('cf-bold').checked;
+
+    const rule = { type };
+    if (type === 'between') {
+        rule.min = parseFloat(document.getElementById('cf-value').value);
+        rule.max = parseFloat(document.getElementById('cf-value2').value);
+        if (isNaN(rule.min) || isNaN(rule.max)) {
+            toast('Between rule needs two numbers.', { kind: 'error' });
+            return null;
+        }
+    } else if (type !== 'empty' && type !== 'notempty') {
+        const raw = document.getElementById('cf-value').value;
+        if (raw === '') {
+            toast('Rule needs a value.', { kind: 'error' });
+            return null;
+        }
+        // Coerce to number if it round-trips cleanly — matches the cell-
+        // edit detection in setCellValueFromInput.
+        const n = parseFloat(raw);
+        rule.value = (!isNaN(n) && String(n) === raw.trim()) ? n : raw;
+    }
+
+    return {
+        id: uid('cf'),
+        range,
+        rule,
+        style: { bg, c, ...(bold ? { b: 1 } : {}) }
+    };
 }
 
 /* ---------------- Charts ---------------- */

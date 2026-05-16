@@ -4,6 +4,42 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.7] — 2026-05-16 — "byteSheet conditional formatting"
+
+The last big Excel-power-feature byteSheet was missing. Define rules
+like "B2:B10 > 100 → red background" and matching cells paint
+themselves automatically. Survives structural edits, undo, save/load.
+
+### Added
+
+- **`cond-format.js`** — pure-function module, ~90 LOC:
+  - `evaluateCondRule(value, rule)` — handles 10 rule types: `gt` / `lt` / `gte` / `lte` / `eq` / `neq` / `between` / `contains` / `empty` / `notempty`. Numeric coercion from strings (so `"150"` matches `> 100`). Case-insensitive `contains`. Strict string-equality for `eq` / `neq`.
+  - `refInCondRange(ref, rangeStr)` — bounds-check, supports single-cell ranges.
+  - `shiftRangeStr(rangeStr, rowOp, colOp)` — analog to chart-range shift, but for the string format CF uses. Returns null if any endpoint is invalidated.
+  - `describeRule(rule)` — short human-readable text for the rule-list UI.
+- **`sheet.condFormat`** array: `{ id, range, rule, style: { bg, c, b?, i? } }`. `ensureShape` initialises to `[]` for old docs.
+- **Toolbar `CF` button** after sort/filter. Click opens the modal.
+- **Modal UI**: range input (default = current selection), rule-type dropdown (auto-hides the value field for `empty`/`notempty`, shows two for `between`), 5 color presets (Red/Yellow/Green/Blue/Accent), custom bg + text color pickers, bold toggle. Below: list of existing rules with preview chip + description + delete button. Adding a rule closes the modal; deleting an existing rule updates the list in place.
+- **Paint integration** in `paintCell`: applied AFTER user `cell.s` so a matching rule overrides for the affected cells. Excel-style precedence — CF wins on match, user style wins outside the range.
+- **Empty-cell-aware**: cells with no `cell` object are still checked against `empty`/`notempty` rules.
+
+### Structural-edit integrity
+
+- **`shiftChartsAndFilter`** now also walks `sh.condFormat` and applies `shiftRangeStr` per rule. Insert/delete row + col correctly shifts every rule's range. Rules whose range gets fully invalidated (e.g., the entire range was inside a deleted col) drop out.
+- **Sheet rename / sort / filter** don't affect CF (range is positional, not data-bound; sheet name isn't part of CF range).
+- **Sheet delete** drops the sheet's CF along with the sheet.
+- **Sheet duplicate** deep-clones CF into the copy via `JSON.parse(JSON.stringify)`.
+- **Undo** carries CF automatically — `state.doc.sheets` is in every snapshot, and CF lives inside each sheet.
+
+### Tests
+
+- **41 new conditional-format tests** in `tests/cond-format.mjs`: all 10 rule types incl. numeric coercion + empty cell handling + case-sensitivity, range containment edges (corners, single-cell, invalid), `shiftRangeStr` for insert/delete row+col + null-on-invalidate.
+- Total: **107 formula + 29 CSV + 41 CF = 177 tests**, all green.
+
+### Service worker
+
+- VERSION → 0.4.7. `/cond-format.js` added to SHELL_FILES.
+
 ## [0.4.6] — 2026-05-16 — "byteDoc markdown shortcuts"
 
 Notion / GitHub-style typing affordances in byteDoc. Type `**bold**` +

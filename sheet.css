@@ -391,3 +391,82 @@
     border-top: 1px solid var(--border-soft);
     margin-top: 6px;
 }
+
+/* ---- Conditional formatting modal ---- */
+
+.cf-presets {
+    display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.cf-preset {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    transition: transform var(--t-fast), box-shadow var(--t-fast);
+}
+.cf-preset:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-1);
+}
+.cf-bold-toggle {
+    display: flex !important;
+    gap: 8px;
+    align-items: center;
+    font-size: 13px;
+    margin-bottom: 14px !important;
+    color: var(--fg-muted);
+}
+.cf-bold-toggle input { width: auto !important; margin-bottom: 0 !important; }
+.cf-sep {
+    border: 0;
+    border-top: 1px solid var(--border-soft);
+    margin: 14px 0;
+}
+.cf-rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.cf-rule-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 8px;
+    background: rgba(0,0,0,0.20);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+}
+.cf-rule-preview {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    min-width: 70px;
+    text-align: center;
+}
+.cf-rule-desc {
+    flex: 1;
+    color: var(--fg-muted);
+    font-size: 12px;
+    font-family: var(--mono);
+}
+.cf-rule-delete {
+    color: var(--fg-dim);
+    transition: color var(--t-fast), background var(--t-fast);
+}
+.cf-rule-delete:hover {
+    color: var(--danger);
+    background: rgba(255, 95, 87, 0.10);
+}
+.cf-empty {
+    margin: 0;
+    color: var(--fg-dim);
+    font-size: 12px;
+    font-style: italic;
+}
