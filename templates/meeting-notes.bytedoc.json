@@ -1,0 +1,9 @@
+{
+  "app": "bytedoc",
+  "version": 1,
+  "id": "TEMPLATE-meeting-notes",
+  "title": "Meeting Notes",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "html": "<h1>Meeting Title</h1><p><strong>Date:</strong> YYYY-MM-DD · <strong>Time:</strong> HH:MM — HH:MM<br><strong>Attendees:</strong> Alice, Bob, Carol<br><strong>Note-taker:</strong> You</p><h2>Agenda</h2><ol><li>Status update — 10 min</li><li>Decision item — 30 min</li><li>Open questions — 15 min</li><li>Action items review — 5 min</li></ol><h2>Discussion</h2><h3>Status update</h3><p>Replace this paragraph with the key points raised.</p><h3>Decision item</h3><blockquote>Decision: Replace with the decision that was made.<br><em>Owner: who is responsible · Deadline: when</em></blockquote><h2>Action items</h2><ul><li><strong>Alice</strong> — write up technical proposal — by 2026-MM-DD</li><li><strong>Bob</strong> — schedule follow-up with stakeholders — by 2026-MM-DD</li><li><strong>You</strong> — distribute notes to attendees — by EOD</li></ul><h2>Parking lot</h2><ul><li>Topics that came up but weren't addressed — capture for the next meeting</li></ul>"
+}

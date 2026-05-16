@@ -1,0 +1,9 @@
+{
+  "app": "bytedoc",
+  "version": 1,
+  "id": "TEMPLATE-letter",
+  "title": "Letter",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "html": "<p>Your Name<br>Street Address<br>City, Postal Code<br>your@email.com</p><p><br></p><p><em>City, 2026-MM-DD</em></p><p><br></p><p>Recipient Name<br>Company or Organization<br>Street Address<br>City, Postal Code</p><p><br></p><h2>Re: Subject of the letter</h2><p>Dear [Name / Sir / Madam],</p><p>Replace this paragraph with the body of your letter. Keep paragraphs short and focused on one idea each — most readers skim, and short paragraphs make skimming productive.</p><p>A second paragraph that builds on the first. End with a clear call to action or a specific request if appropriate.</p><p>Thank you for your consideration. I look forward to your response.</p><p>Sincerely,</p><p><br></p><p>Your Name</p>"
+}

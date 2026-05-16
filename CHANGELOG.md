@@ -4,6 +4,33 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-05-16 — "Hub templates"
+
+First-time visitors land on a hub that's no longer just an empty Recent
+list with two New buttons. Five templates give a concrete starting
+point and double as a showcase for both apps.
+
+### Added
+
+- **`/templates/` directory** with 5 high-quality starting points:
+  - **Resume** (byteDoc) — headings, experience, education, skills laid out cleanly
+  - **Meeting Notes** (byteDoc) — agenda, discussion, action items, parking lot
+  - **Letter** (byteDoc) — formal header, subject line, signature blocks
+  - **Monthly Budget** (byteSheet) — income, expenses, totals + live `SUM`, `B6-B16` formulas, savings rate as `%` formatted percentage
+  - **Inventory** (byteSheet) — items × qty × unit price → line totals, grand total via `SUM`, plus `AVG` and `MAX` summary cells
+- **Hub "Start with a template" section** between the big tiles and the action row. 5 cards in a responsive `auto-fill, minmax(180px, 1fr)` grid (4 per row on desktop, wraps on mobile). Each card: icon + app badge + title + 1-line description. Same accent-halo hover treatment as the main hub tiles, just tighter.
+- **`instantiateTemplate(meta)`** in `app.js`: fetches the template JSON, stamps fresh `id` + `createdAt`/`updatedAt`, persists via the normal storage path, navigates to `#/doc/<id>` or `#/sheet/<id>`. The template's title (e.g. "Monthly Budget") is kept as the initial doc title — user can rename via the topbar input.
+
+### Architecture
+
+- **`/templates/index.json`** is the discovery manifest — `app.js` reads it once on first hub render, caches in `_templatesCache`. Adding a new template means: drop a new JSON file in `/templates/`, add an entry to `index.json`, add the filename to `sw.js`'s `SHELL_FILES`.
+- **Service worker version bumped to 0.4.0**. New cache `byteworkz-shell-v0.4.0` includes the 6 new template files. Old `byteworkz-shell-v0.3.4` cache is purged in the SW `activate` step. Users on v0.3.4 will see a "New version available" toast.
+- **Schema reuse**: templates are regular `.bytedoc.json` / `.bytesheet.json` files (same shape as user-downloaded docs). The only "template-ness" is at the discovery layer (`index.json` lists them). Means: a power user can save their own doc, drop the JSON in `/templates/`, and it becomes a template — no code change needed.
+
+### Tests
+
+- 107/107 unchanged. Templates exercise the existing formula engine (`SUM`, `AVG`, `MAX`, `B6-B16`, `B18/B6`) — all covered.
+
 ## [0.3.4] — 2026-05-15 — "PWA: offline + installable"
 
 byteworkz is now an installable, offline-capable PWA. No accounts, no cloud

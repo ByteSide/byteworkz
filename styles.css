@@ -310,6 +310,90 @@ button { font: inherit; color: inherit; }
     margin-bottom: 40px;
 }
 
+/* ---- Template cards (Hub: "Start with a template") ---- */
+.hub-templates-section { margin-bottom: 36px; }
+.hub-templates {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+}
+.template-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    background: linear-gradient(160deg, rgba(20, 38, 46, 0.72), rgba(15, 31, 38, 0.62));
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    color: var(--fg);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color var(--t-norm), transform var(--t-soft), box-shadow var(--t-soft), background var(--t-norm);
+    font: inherit;
+    box-shadow: var(--shadow-1);
+    position: relative;
+    overflow: hidden;
+}
+/* Hover halo — same accent gradient idea as hub-tile but more subtle since
+ * these cards are secondary. */
+.template-card::before {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(ellipse 80% 100% at 50% -20%, rgba(253, 125, 0, 0.18), transparent 60%);
+    opacity: 0;
+    transition: opacity var(--t-soft);
+    pointer-events: none;
+}
+.template-card:hover {
+    border-color: rgba(253, 125, 0, 0.30);
+    transform: translateY(-2px);
+    box-shadow:
+        0 14px 36px -12px rgba(0,0,0,0.6),
+        0 0 0 1px rgba(253, 125, 0, 0.20);
+}
+.template-card:hover::before { opacity: 1; }
+.template-card:active { transform: translateY(0); }
+.template-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+.template-card-icon {
+    width: 32px; height: 32px;
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    background: rgba(6, 23, 30, 0.5);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    transition: background var(--t-norm), border-color var(--t-norm);
+}
+.template-card-icon svg { width: 18px; height: 18px; }
+.template-card:hover .template-card-icon {
+    background: rgba(253, 125, 0, 0.10);
+    border-color: rgba(253, 125, 0, 0.30);
+}
+.template-card-badge {
+    font-size: 9px; padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px; color: var(--fg-muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    font-family: var(--mono);
+    font-weight: 600;
+}
+.template-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+}
+.template-card-desc {
+    font-size: 12px;
+    color: var(--fg-muted);
+    line-height: 1.4;
+}
+
 .hub-section-title {
     font-size: 11px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.12em;

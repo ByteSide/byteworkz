@@ -1,0 +1,9 @@
+{
+  "app": "bytedoc",
+  "version": 1,
+  "id": "TEMPLATE-resume",
+  "title": "Resume",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "html": "<h1>Your Name</h1><p><strong>Title or Role</strong> · you@example.com · +1 555-0100 · linkedin.com/in/yourname</p><h2>Summary</h2><p>One-sentence professional pitch — what you do, who you've done it for, why people should care. Replace this paragraph with your own.</p><h2>Experience</h2><h3>Senior Engineer — Acme Corp</h3><p><em>2022 — Present · San Francisco, CA</em></p><ul><li>Led team of 5 engineers building distributed payment infrastructure</li><li>Reduced p95 latency from 400ms to 80ms through caching redesign</li><li>Mentored 3 junior engineers to promotion</li></ul><h3>Engineer — Startup Inc</h3><p><em>2019 — 2022 · Berlin, DE</em></p><ul><li>Built MVP that grew to 10k DAU in first year</li><li>Designed and shipped real-time collaboration features</li><li>Owned end-to-end delivery from spec through on-call</li></ul><h2>Education</h2><h3>BSc Computer Science — Technical University</h3><p><em>2015 — 2019 · Munich, DE</em></p><h2>Skills</h2><p>JavaScript · TypeScript · Go · PostgreSQL · Distributed Systems · System Design · Mentoring</p>"
+}

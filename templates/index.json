@@ -1,0 +1,39 @@
+{
+  "templates": [
+    {
+      "id": "resume",
+      "title": "Resume",
+      "app": "bytedoc",
+      "file": "resume.bytedoc.json",
+      "description": "Professional CV — experience, education, skills."
+    },
+    {
+      "id": "meeting-notes",
+      "title": "Meeting Notes",
+      "app": "bytedoc",
+      "file": "meeting-notes.bytedoc.json",
+      "description": "Agenda, discussion, action items, parking lot."
+    },
+    {
+      "id": "letter",
+      "title": "Letter",
+      "app": "bytedoc",
+      "file": "letter.bytedoc.json",
+      "description": "Formal letter with header and signature blocks."
+    },
+    {
+      "id": "budget",
+      "title": "Monthly Budget",
+      "app": "bytesheet",
+      "file": "budget.bytesheet.json",
+      "description": "Income, expenses, net — with live formulas."
+    },
+    {
+      "id": "inventory",
+      "title": "Inventory",
+      "app": "bytesheet",
+      "file": "inventory.bytesheet.json",
+      "description": "Items, quantities, prices, line totals + grand total."
+    }
+  ]
+}

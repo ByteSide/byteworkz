@@ -24,7 +24,7 @@
  * this; old caches are cleaned in `activate`.
  */
 
-const VERSION = '0.3.4';
+const VERSION = '0.4.0';
 const SHELL_CACHE = `byteworkz-shell-v${VERSION}`;
 
 const SHELL_FILES = [
@@ -44,7 +44,15 @@ const SHELL_FILES = [
     '/version.json',
     '/imprint.html',
     '/privacy.html',
-    '/legal-lang.js'
+    '/legal-lang.js',
+    // Templates: precached so the Hub's "Start with a template" works
+    // offline and instantiation is instant on click.
+    '/templates/index.json',
+    '/templates/resume.bytedoc.json',
+    '/templates/meeting-notes.bytedoc.json',
+    '/templates/letter.bytedoc.json',
+    '/templates/budget.bytesheet.json',
+    '/templates/inventory.bytesheet.json'
 ];
 
 self.addEventListener('install', (e) => {

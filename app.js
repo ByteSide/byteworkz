@@ -268,7 +268,80 @@ function renderHub() {
     bindOnce(document.getElementById('hub-new-sheet'), 'click', () => { location.hash = '#/sheet'; });
     bindOnce(document.getElementById('hub-open-file'), 'click', openAnyFile);
 
+    renderTemplates();
     renderRecent();
+}
+
+/* ---------------- Templates ---------------- */
+
+// Module-level cache so we don't refetch on every hub-render. SW also caches
+// /templates/index.json so subsequent fetches are instant, but this avoids
+// even that one round-trip + JSON parse.
+let _templatesCache = null;
+
+async function renderTemplates() {
+    const section = document.getElementById('hub-templates-section');
+    const list = document.getElementById('hub-templates');
+    if (!section || !list) return;
+    try {
+        if (!_templatesCache) {
+            const r = await fetch('/templates/index.json');
+            if (!r.ok) return;  // section stays hidden — fail silent
+            _templatesCache = await r.json();
+        }
+        const items = (_templatesCache && _templatesCache.templates) || [];
+        if (!items.length) return;
+        list.innerHTML = '';
+        items.forEach(meta => {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'template-card';
+            card.dataset.tplId = meta.id;
+            const icon = meta.app === 'bytedoc' ? docIconSvg() : sheetIconSvg();
+            const badge = meta.app === 'bytedoc' ? 'doc' : 'sheet';
+            card.innerHTML = `
+                <div class="template-card-head">
+                    <span class="template-card-icon">${icon}</span>
+                    <span class="template-card-badge">${badge}</span>
+                </div>
+                <div class="template-card-title">${escapeHtml(meta.title)}</div>
+                <div class="template-card-desc">${escapeHtml(meta.description || '')}</div>
+            `;
+            card.addEventListener('click', () => instantiateTemplate(meta));
+            list.appendChild(card);
+        });
+        section.hidden = false;
+    } catch (e) {
+        console.warn('Templates load failed:', e);
+    }
+}
+
+async function instantiateTemplate(meta) {
+    try {
+        const r = await fetch('/templates/' + encodeURIComponent(meta.file));
+        if (!r.ok) {
+            toast('Could not load template.', { kind: 'error' });
+            return;
+        }
+        const tpl = await r.json();
+        if (tpl.app !== meta.app) {
+            toast('Template type mismatch.', { kind: 'error' });
+            return;
+        }
+        // Stamp a fresh id + timestamps so the instantiated doc is its own
+        // entity, not a shared alias of the template. Title stays as the
+        // template's title (e.g. "Monthly Budget") — user can rename via
+        // the topbar input.
+        tpl.id = uid(meta.app === 'bytedoc' ? 'd' : 's');
+        const now = nowIso();
+        tpl.createdAt = now;
+        tpl.updatedAt = now;
+        const ok = docs.save(tpl);
+        if (!ok) return;  // toast already shown by storage layer
+        location.hash = (meta.app === 'bytedoc' ? '#/doc/' : '#/sheet/') + tpl.id;
+    } catch (e) {
+        toast('Could not load template: ' + e.message, { kind: 'error' });
+    }
 }
 
 async function openAnyFile() {

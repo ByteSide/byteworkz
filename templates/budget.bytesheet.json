@@ -1,0 +1,43 @@
+{
+  "app": "bytesheet",
+  "version": 1,
+  "id": "TEMPLATE-budget",
+  "title": "Monthly Budget",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "activeSheet": 0,
+  "sheets": [
+    {
+      "name": "Budget",
+      "cols": 26,
+      "rows": 100,
+      "cells": {
+        "A1": { "v": "Monthly Budget", "s": { "b": 1, "c": "#FD7D00" } },
+        "A3": { "v": "Income", "s": { "b": 1 } },
+        "B3": { "v": "Amount", "s": { "b": 1 } },
+        "A4": { "v": "Salary" },
+        "B4": { "v": 3000, "s": { "nf": "€" } },
+        "A5": { "v": "Side income" },
+        "B5": { "v": 500, "s": { "nf": "€" } },
+        "A6": { "v": "Total income", "s": { "b": 1 } },
+        "B6": { "f": "SUM(B4:B5)", "v": 3500, "s": { "b": 1, "nf": "€" } },
+        "A8": { "v": "Expenses", "s": { "b": 1 } },
+        "B8": { "v": "Amount", "s": { "b": 1 } },
+        "A9":  { "v": "Rent" },          "B9":  { "v": 1200, "s": { "nf": "€" } },
+        "A10": { "v": "Groceries" },     "B10": { "v": 400,  "s": { "nf": "€" } },
+        "A11": { "v": "Transport" },     "B11": { "v": 150,  "s": { "nf": "€" } },
+        "A12": { "v": "Utilities" },     "B12": { "v": 200,  "s": { "nf": "€" } },
+        "A13": { "v": "Subscriptions" }, "B13": { "v": 80,   "s": { "nf": "€" } },
+        "A14": { "v": "Entertainment" }, "B14": { "v": 250,  "s": { "nf": "€" } },
+        "A15": { "v": "Other" },         "B15": { "v": 100,  "s": { "nf": "€" } },
+        "A16": { "v": "Total expenses", "s": { "b": 1 } },
+        "B16": { "f": "SUM(B9:B15)", "v": 2380, "s": { "b": 1, "nf": "€" } },
+        "A18": { "v": "Net", "s": { "b": 1, "c": "#FD7D00" } },
+        "B18": { "f": "B6-B16", "v": 1120, "s": { "b": 1, "c": "#FD7D00", "nf": "€" } },
+        "A20": { "v": "Savings rate", "s": { "b": 1 } },
+        "B20": { "f": "B18/B6", "v": 0.32, "s": { "b": 1, "nf": "%" } }
+      },
+      "charts": []
+    }
+  ]
+}
