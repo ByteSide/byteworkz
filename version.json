@@ -1,6 +1,6 @@
 {
-  "version": "0.4.5",
+  "version": "0.4.6",
   "date": "2026-05-16",
-  "build": "print-polish",
+  "build": "doc-markdown",
   "apps": ["byteDoc", "byteSheet"]
 }

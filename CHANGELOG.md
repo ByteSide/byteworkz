@@ -4,6 +4,70 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.6] — 2026-05-16 — "byteDoc markdown shortcuts"
+
+Notion / GitHub-style typing affordances in byteDoc. Type `**bold**` +
+space and it becomes **bold**; type `## ` at line start and it becomes
+H2. The toolbar still works for everything; markdown is just a faster
+path for power typists.
+
+### Added — inline shortcuts
+
+Triggered on space-keydown after the closing marker. Inline-typed
+markers transform; space inserts naturally after.
+
+| Type | Result |
+|---|---|
+| `**X**` + space | `<strong>X</strong>` |
+| `__X__` + space | `<strong>X</strong>` |
+| `*X*` + space | `<em>X</em>` |
+| `_X_` + space | `<em>X</em>` |
+| `` `X` `` + space | `<code>X</code>` |
+| `~~X~~` + space | `<s>X</s>` |
+
+Inner-edge `\S` guards: `** X **` does NOT trigger (CommonMark-ish — markers can't be adjacent to whitespace).
+
+### Added — block shortcuts
+
+Triggered on space-keydown when the current paragraph contains only the
+trigger marker. Space is consumed; cursor lands inside the new empty
+block, ready to type.
+
+| Line content | Result |
+|---|---|
+| `#` + space | `<h1>` |
+| `##` + space | `<h2>` |
+| `###` + space | `<h3>` |
+| `>` + space | `<blockquote>` |
+| `-` or `*` + space | `<ul><li>` |
+| `1.` + space | `<ol><li>` |
+
+Block triggers fire only inside plain `<p>` / `<div>` blocks. Inside an existing heading, list, table cell, or code block, they're skipped.
+
+### Skipped contexts
+
+- **Inside `<pre>` or `<code>`** — literal regions; transforming markers there would surprise users writing code.
+- **Inside existing lists / headings / tables** — block triggers only fire from a plain paragraph.
+
+### Undo integration
+
+Each successful transform calls `commitSnapshot(active())` so Ctrl+Z
+undoes the auto-format in one step, separately from preceding/following
+text input.
+
+### About modal
+
+The keyboard-help section now includes a "byteDoc markdown shortcuts"
+table. byteSheet shortcuts gained `Ctrl+Z/Y` undo (was missing).
+
+### Service worker
+
+- VERSION bumped to 0.4.6.
+
+### Tests
+
+- 107 + 29 unchanged. Markdown transforms are DOM-mutation heavy; not unit-testable without a JSDOM-style harness.
+
 ## [0.4.5] — 2026-05-16 — "print / PDF polish"
 
 Ctrl+P now produces printer-friendly output instead of a dark-theme

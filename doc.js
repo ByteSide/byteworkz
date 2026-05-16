@@ -624,6 +624,153 @@ function bindEditor() {
     state.editor.addEventListener('contextmenu', onEditorContext);
     bindImageDrop();
     bindCodeBlockTab();
+    bindMarkdownShortcuts();
+}
+
+/* ---------------- Markdown shortcuts ----------------
+ *
+ * Notion / GitHub-style typing affordances:
+ *   `**bold**` + space          → <strong>bold</strong>
+ *   `*italic*` + space          → <em>italic</em>
+ *   `` `code` `` + space        → <code>code</code>
+ *   `~~strike~~` + space        → <s>strike</s>
+ *
+ * Block triggers, only when typed at the start of an empty paragraph
+ * (current block contains nothing but the trigger chars):
+ *   `# `   → <h1>
+ *   `## `  → <h2>
+ *   `### ` → <h3>
+ *   `> `   → <blockquote>
+ *   `- `   → <ul><li>
+ *   `1. `  → <ol><li>
+ *
+ * Triggered on keydown of the space key — by then the marker characters
+ * are fully in the DOM. Inline transforms let the space insert naturally
+ * (cursor lands after the wrapped element + space). Block transforms
+ * preventDefault on the space and create a fresh empty block with the
+ * caret inside, ready to type into.
+ *
+ * Inside <pre> / <code> the shortcuts are skipped — pre is a literal
+ * region, transforming markers there would surprise users writing code.
+ */
+
+// Inline patterns: each entry tries to match against the text immediately
+// before the cursor at the moment of space-keydown. \S guards at the
+// inner edges enforce CommonMark-ish "no whitespace adjacent to marker"
+// — `** X **` doesn't trigger, while `**X**` does.
+const INLINE_MD_PATTERNS = [
+    { re: /\*\*(\S(?:[^*]*\S)?)\*\*$/, tag: 'strong' },
+    { re: /__(\S(?:[^_]*\S)?)__$/,     tag: 'strong' },
+    { re: /(?<!\*)\*(\S(?:[^*]*\S)?)\*$/, tag: 'em' },
+    { re: /(?<!_)_(\S(?:[^_]*\S)?)_$/,    tag: 'em' },
+    { re: /`(\S(?:[^`]*\S)?)`$/,       tag: 'code' },
+    { re: /~~(\S(?:[^~]*\S)?)~~$/,     tag: 's' }
+];
+
+function bindMarkdownShortcuts() {
+    state.editor.addEventListener('keydown', (e) => {
+        if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        const range = sel.getRangeAt(0);
+        if (!range.collapsed) return;
+        const node = range.startContainer;
+        if (isInsidePreOrCode(node)) return;
+        if (tryBlockMarkdown()) {
+            e.preventDefault();
+            markDirty();
+            updateWordCount();
+            commitSnapshot(active());
+            return;
+        }
+        if (tryInlineMarkdown()) {
+            // Let the space insert naturally after the transform — cursor
+            // is now positioned right after the wrapped element. Snapshot
+            // committed after the natural space insert via the input event
+            // → debounce; for finer-grained undo we also fire one here.
+            markDirty();
+            commitSnapshot(active());
+        }
+    });
+}
+
+function isInsidePreOrCode(node) {
+    while (node && node !== state.editor) {
+        if (node.nodeType === 1 && (node.tagName === 'PRE' || node.tagName === 'CODE')) return true;
+        node = node.parentNode;
+    }
+    return false;
+}
+
+function tryInlineMarkdown() {
+    const sel = window.getSelection();
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE) return false;
+    const offset = range.startOffset;
+    const before = node.textContent.slice(0, offset);
+    for (const { re, tag } of INLINE_MD_PATTERNS) {
+        const m = re.exec(before);
+        if (!m) continue;
+        const full = m[0];
+        const inner = m[1];
+        const r = document.createRange();
+        r.setStart(node, offset - full.length);
+        r.setEnd(node, offset);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        document.execCommand('insertHTML', false, `<${tag}>${escapeHtml(inner)}</${tag}>`);
+        return true;
+    }
+    return false;
+}
+
+function tryBlockMarkdown() {
+    const sel = window.getSelection();
+    const range = sel.getRangeAt(0);
+    // Find enclosing P/DIV (heading shortcuts only fire at the top of
+    // plain blocks — not inside existing headings, lists, tables).
+    let block = range.startContainer;
+    if (block.nodeType === Node.TEXT_NODE) block = block.parentNode;
+    while (block && block !== state.editor) {
+        if (block.tagName === 'P' || block.tagName === 'DIV') break;
+        block = block.parentNode;
+    }
+    if (!block || block === state.editor) return false;
+    const trimmed = block.textContent.trim();
+    let newTag = null;
+    let listKind = null;
+    if      (trimmed === '#')   newTag = 'h1';
+    else if (trimmed === '##')  newTag = 'h2';
+    else if (trimmed === '###') newTag = 'h3';
+    else if (trimmed === '>')   newTag = 'blockquote';
+    else if (trimmed === '-' || trimmed === '*') listKind = 'ul';
+    else if (trimmed === '1.')  listKind = 'ol';
+    if (!newTag && !listKind) return false;
+
+    if (listKind) {
+        const list = document.createElement(listKind);
+        const li = document.createElement('li');
+        li.innerHTML = '<br>';
+        list.appendChild(li);
+        block.parentNode.replaceChild(list, block);
+        placeCaretAtStart(li);
+        return true;
+    }
+    const next = document.createElement(newTag);
+    next.innerHTML = '<br>';
+    block.parentNode.replaceChild(next, block);
+    placeCaretAtStart(next);
+    return true;
+}
+
+function placeCaretAtStart(el) {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
 }
 
 // Tab inside a <pre> should insert a tab character, not move focus or

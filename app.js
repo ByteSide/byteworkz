@@ -200,7 +200,23 @@ function openAboutModal() {
                     <kbd>Ctrl+F</kbd><span>Find &amp; replace</span>
                     <kbd>Ctrl+S</kbd><span>Download JSON</span>
                     <kbd>Ctrl+O</kbd><span>Open file</span>
+                    <kbd>Ctrl+P</kbd><span>Print</span>
                     <kbd>Ctrl+Z / Y</kbd><span>Undo / redo</span>
+                </div>
+            </div>
+            <div class="about-section">
+                <h3>byteDoc markdown shortcuts</h3>
+                <div class="about-grid">
+                    <kbd>**bold**</kbd><span>+ space → <strong>bold</strong></span>
+                    <kbd>*italic*</kbd><span>+ space → <em>italic</em></span>
+                    <kbd>\`code\`</kbd><span>+ space → inline code</span>
+                    <kbd>~~strike~~</kbd><span>+ space → strikethrough</span>
+                    <kbd># </kbd><span>at line start → Heading 1</span>
+                    <kbd>## </kbd><span>at line start → Heading 2</span>
+                    <kbd>### </kbd><span>at line start → Heading 3</span>
+                    <kbd>&gt; </kbd><span>at line start → blockquote</span>
+                    <kbd>- </kbd><span>at line start → bullet list</span>
+                    <kbd>1. </kbd><span>at line start → numbered list</span>
                 </div>
             </div>
 
@@ -215,7 +231,8 @@ function openAboutModal() {
                     <kbd>Delete</kbd><span>Clear selection</span>
                     <kbd>Ctrl+C / X / V</kbd><span>Copy / cut / paste (TSV)</span>
                     <kbd>Ctrl+A</kbd><span>Select all</span>
-                    <kbd>Ctrl+S / O</kbd><span>Save / open</span>
+                    <kbd>Ctrl+Z / Y</kbd><span>Undo / redo</span>
+                    <kbd>Ctrl+S / O / P</kbd><span>Save / open / print</span>
                 </div>
             </div>
 
