@@ -1,6 +1,6 @@
 {
-  "version": "0.4.7",
+  "version": "0.4.8",
   "date": "2026-05-16",
-  "build": "cond-format",
+  "build": "doc-outline",
   "apps": ["byteDoc", "byteSheet"]
 }

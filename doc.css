@@ -12,6 +12,15 @@
 
 .doc-tabs { /* uses .tabs-bar */ }
 
+/* Editor + outline side-by-side. The outline aside is sticky-rail to the
+ * right of the editor; both share the same scroll context up the tree. */
+.doc-main-area {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
 .doc-editor-wrap {
     flex: 1; min-height: 0;
     overflow: auto;
@@ -19,6 +28,80 @@
         radial-gradient(ellipse 60% 40% at 50% 0%, rgba(253,125,0,0.04), transparent 60%),
         var(--bg-2);
     padding: 36px 24px 64px;
+}
+
+/* Outline sidebar — right-rail TOC. Auto-hidden for docs with <2
+ * headings; user can toggle via toolbar button (state persisted in
+ * localStorage). */
+.doc-outline {
+    width: 220px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    overflow-y: auto;
+    padding: 18px 14px 24px;
+    font-size: 12px;
+}
+.doc-outline[hidden] { display: none; }
+
+.outline-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin: 0 0 14px;
+}
+.outline-title::before {
+    content: '// ';
+    color: var(--accent);
+    opacity: 0.55;
+}
+
+.outline-list { list-style: none; padding: 0; margin: 0; }
+.outline-item {
+    padding: 5px 10px;
+    margin-bottom: 1px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    color: var(--fg-muted);
+    line-height: 1.4;
+    transition: background var(--t-fast), color var(--t-fast), border-left-color var(--t-fast);
+    border-left: 2px solid transparent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.outline-item:hover {
+    background: var(--surface-2);
+    color: var(--fg);
+}
+.outline-item.active {
+    color: var(--accent);
+    background: rgba(253, 125, 0, 0.06);
+    border-left-color: var(--accent);
+}
+.outline-item.h1 { font-weight: 600; font-size: 12.5px; }
+.outline-item.h2 { padding-left: 18px; }
+.outline-item.h3 { padding-left: 28px; font-size: 11px; opacity: 0.85; }
+
+/* Brief flash on the heading when user clicks an outline entry to jump. */
+.doc-editor h1.outline-scrolled-to,
+.doc-editor h2.outline-scrolled-to,
+.doc-editor h3.outline-scrolled-to {
+    animation: outline-pulse 0.8s ease-out;
+    border-radius: var(--radius-sm);
+}
+@keyframes outline-pulse {
+    0%   { background: rgba(253, 125, 0, 0.20); }
+    100% { background: transparent; }
+}
+
+/* On narrow viewports the editor needs all available width. Hide the
+ * outline below 900px — power feature for desktop only. */
+@media (max-width: 900px) {
+    .doc-outline { display: none !important; }
 }
 .doc-editor {
     background: linear-gradient(180deg, var(--surface), var(--surface-2));
@@ -248,8 +331,9 @@
    structural blocks (tables, code, blockquotes, images, headings).
    ============================================================ */
 @media print {
-    .doc-toolbar, .tabs-bar, .doc-find-bar, .status-bar { display: none !important; }
+    .doc-toolbar, .tabs-bar, .doc-find-bar, .status-bar, .doc-outline { display: none !important; }
     .doc-shell { display: block !important; height: auto !important; }
+    .doc-main-area { display: block !important; overflow: visible !important; }
     .doc-editor-wrap {
         padding: 0 !important;
         background: #fff !important;

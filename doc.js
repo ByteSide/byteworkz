@@ -75,8 +75,15 @@ const state = {
     snapshotDebounced: null,
     mounted: false,
     selectedImg: null,
-    imgResizeBox: null
+    imgResizeBox: null,
+    outlineOpen: true,   // toggleable, persisted via localStorage
+    outlineIO: null      // IntersectionObserver for active-heading tracking
 };
+
+// Restore outline-open preference at module load.
+try {
+    state.outlineOpen = localStorage.getItem('byteworkz.doc.outlineOpen') !== '0';
+} catch { /* localStorage blocked — defaults to open */ }
 
 /* ---------------- Undo / Redo (snapshot stack) ---------------- */
 
@@ -313,8 +320,14 @@ function buildDOM() {
                 <div class="spacer"></div>
                 <button class="btn-icon" id="doc-find-close" title="Close (Esc)">✕</button>
             </div>
-            <div class="doc-editor-wrap" id="doc-editor-wrap">
-                <div class="doc-editor" id="doc-editor" contenteditable="true" spellcheck="true"></div>
+            <div class="doc-main-area">
+                <div class="doc-editor-wrap" id="doc-editor-wrap">
+                    <div class="doc-editor" id="doc-editor" contenteditable="true" spellcheck="true"></div>
+                </div>
+                <aside class="doc-outline" id="doc-outline" hidden>
+                    <h3 class="outline-title">Outline</h3>
+                    <ul class="outline-list" id="outline-list"></ul>
+                </aside>
             </div>
             <div class="status-bar" id="doc-status"></div>
         </div>
@@ -383,6 +396,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="code"  title="Insert code block">&lt;/&gt;</button>
         <button class="btn-icon" data-cmd="removeFormat" title="Clear format">Tx</button>
         <div class="btn-divider"></div>
+        <button class="btn-icon" data-action="outline" title="Toggle outline">≡</button>
         <button class="btn-icon" data-action="find" title="Find &amp; Replace (Ctrl+F)">⌕</button>
         <button class="btn-icon" data-action="save" title="Download JSON (Ctrl+S)">⤓</button>
         <button class="btn-icon" data-action="open" title="Open file (Ctrl+O)">⤒</button>
@@ -429,6 +443,7 @@ function handleAction(action) {
     if (action === 'table') return doInsertTable();
     if (action === 'image') return doInsertImage();
     if (action === 'code') return doInsertCodeBlock();
+    if (action === 'outline') return toggleOutline();
     if (action === 'find') return toggleFind(true);
     if (action === 'save') return doDownload();
     if (action === 'open') return doOpen();
@@ -585,6 +600,7 @@ function setActive(id) {
     // Seed history on first activation. Subsequent activations inherit the
     // doc's existing stack (per-tab linear history).
     if (!d.history) commitSnapshot(d);
+    renderOutline();
     // Update hash without retrigger
     if (location.hash !== '#/doc/' + id) history.replaceState(null, '', '#/doc/' + id);
 }
@@ -617,6 +633,7 @@ function bindEditor() {
     state.editor.addEventListener('input', () => {
         markDirty();
         updateWordCount();
+        renderOutline();
         if (state.snapshotDebounced) state.snapshotDebounced();
     });
     state.editor.addEventListener('paste', onPaste);
@@ -771,6 +788,97 @@ function placeCaretAtStart(el) {
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(r);
+}
+
+/* ---------------- Outline (TOC sidebar) ----------------
+ *
+ * Right-rail sidebar listing every H1/H2/H3 in the doc. Click an entry to
+ * smooth-scroll there (with a brief accent flash on the heading). An
+ * IntersectionObserver watches headings as they enter / leave the
+ * scrollable editor and marks the topmost-visible one as `.active`, so
+ * the user sees where in the doc they are while scrolling.
+ *
+ * The outline auto-hides if the doc has fewer than 2 headings — short
+ * docs don't need navigation. User toggle (toolbar button) overrides
+ * and is persisted to localStorage.
+ *
+ * Heading IDs are runtime-assigned via `data-outline-id` so we can
+ * cross-reference items in the list with the heading elements. IDs are
+ * fresh per re-render; old ones are overwritten so stale entries can't
+ * accumulate after edits.
+ */
+
+function renderOutline() {
+    const aside = document.getElementById('doc-outline');
+    const list = document.getElementById('outline-list');
+    if (!aside || !list) return;
+    const headings = state.editor.querySelectorAll('h1, h2, h3');
+    // Auto-hide for tiny docs unless the user has explicitly opened the
+    // outline — even then we still want to render the list so toggling on
+    // shows it populated.
+    if (headings.length < 2) {
+        aside.hidden = true;
+        return;
+    }
+    list.innerHTML = '';
+    headings.forEach((h, idx) => {
+        const oid = 'oh-' + idx;
+        h.dataset.outlineId = oid;
+        const li = document.createElement('li');
+        li.className = 'outline-item ' + h.tagName.toLowerCase();
+        li.dataset.target = oid;
+        li.textContent = (h.textContent || '').trim() || '(empty)';
+        li.title = li.textContent;
+        li.addEventListener('click', () => {
+            h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Brief accent flash so the user's eye lands on what they jumped to.
+            h.classList.add('outline-scrolled-to');
+            setTimeout(() => h.classList.remove('outline-scrolled-to'), 800);
+        });
+        list.appendChild(li);
+    });
+    aside.hidden = !state.outlineOpen;
+    bindOutlineActiveTracking();
+}
+
+function bindOutlineActiveTracking() {
+    if (state.outlineIO) state.outlineIO.disconnect();
+    const wrap = document.getElementById('doc-editor-wrap');
+    if (!wrap) return;
+    state.outlineIO = new IntersectionObserver((entries) => {
+        // Pick the heading whose intersection ratio is highest among
+        // currently-intersecting ones — that's the one the user is reading.
+        // Updating with the latest entry alone misses cases where multiple
+        // headings are visible at once.
+        let bestEntry = null;
+        for (const e of entries) {
+            if (!e.isIntersecting) continue;
+            if (!bestEntry || e.intersectionRatio > bestEntry.intersectionRatio) bestEntry = e;
+        }
+        if (!bestEntry) return;
+        const oid = bestEntry.target.dataset.outlineId;
+        document.querySelectorAll('.outline-item.active').forEach(li => li.classList.remove('active'));
+        const li = document.querySelector(`.outline-item[data-target="${oid}"]`);
+        if (li) li.classList.add('active');
+    }, {
+        root: wrap,
+        threshold: [0, 0.5, 1.0],
+        // Bias toward the top — a heading is "active" only when it's in
+        // the top portion of the viewport (else we'd keep showing the
+        // bottom-most-visible one which is rarely what the user is on).
+        rootMargin: '0px 0px -60% 0px'
+    });
+    state.editor.querySelectorAll('h1, h2, h3').forEach(h => state.outlineIO.observe(h));
+}
+
+function toggleOutline() {
+    state.outlineOpen = !state.outlineOpen;
+    try { localStorage.setItem('byteworkz.doc.outlineOpen', state.outlineOpen ? '1' : '0'); } catch {}
+    const aside = document.getElementById('doc-outline');
+    if (aside) {
+        const headings = state.editor.querySelectorAll('h1, h2, h3');
+        aside.hidden = !state.outlineOpen || headings.length < 2;
+    }
 }
 
 // Tab inside a <pre> should insert a tab character, not move focus or

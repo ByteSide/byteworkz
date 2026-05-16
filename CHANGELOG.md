@@ -4,6 +4,40 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.8] — 2026-05-16 — "byteDoc outline / TOC sidebar"
+
+Right-side TOC for long byteDoc documents. Click a heading to jump
+there; the active heading highlights as you scroll. Mirrors the
+navigation affordance byteSheet has via sheet tabs.
+
+### Added
+
+- **Right-rail outline sidebar** (`.doc-outline`, 220px) listing every `H1` / `H2` / `H3` in the doc. Indented by level (H2 +18px, H3 +28px, smaller font). Hover lifts the row to surface-2; click smooth-scrolls to that heading.
+- **Active-heading tracking** via `IntersectionObserver`. The heading occupying the top 40% of the visible editor viewport gets `.active` class — accent text + left accent bar + tinted background. Re-attaches on each render so re-loaded docs / tab switches re-observe the fresh DOM.
+- **Click flash**: jumped-to heading flashes accent-tinted bg for 0.8s via `outline-pulse` keyframe. Eye lands where you jumped.
+- **Toolbar button `≡`** (next to Find) toggles the sidebar. State persists to `localStorage.byteworkz.doc.outlineOpen` — preference survives page reload and is shared across documents.
+- **Auto-hide for short docs**: < 2 headings → sidebar hidden regardless of toggle. Re-appears once you add a 2nd heading.
+- **Mobile**: hidden via `@media (max-width: 900px)` — narrow viewports need full editor width.
+- **Print**: outline hidden in print stylesheet (no chrome on paper).
+
+### Architecture
+
+- **Headings get a runtime `data-outline-id`** so each list entry can reference back to its source heading via DOM. Re-assigned on every render — no stale IDs accumulate.
+- **`bindOutlineActiveTracking()`** disconnects + recreates the IntersectionObserver each render. Necessary because setActive() resets editor.innerHTML, replacing all heading elements with fresh ones (observer can't follow garbage-collected nodes).
+- **rootMargin `0px 0px -60% 0px`** biases active-detection toward the top of the viewport. Without this, scrolling slowly leaves the LAST-visible heading marked active, which is the wrong intuition for a reader.
+
+### Hook points
+
+- `renderOutline()` called from: `setActive` (tab switch), editor `input` event (live-update while typing), and `buildDOM` (initial state from mount).
+
+### Service worker
+
+- VERSION bumped to 0.4.8.
+
+### Tests
+
+- 107 + 29 + 41 unchanged. Outline is DOM + IntersectionObserver heavy; not unit-testable in isolation.
+
 ## [0.4.7] — 2026-05-16 — "byteSheet conditional formatting"
 
 The last big Excel-power-feature byteSheet was missing. Define rules
