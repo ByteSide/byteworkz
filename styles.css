@@ -1273,3 +1273,84 @@ html[lang="en"] [lang="de"] { display: none; }
     line-height: 1.4;
     color: var(--fg-muted);
 }
+
+/* ── Document tags ─────────────────────────────────────────────────────
+ * Tag chips appear in three places: the tag-edit dialog, the Hub recent
+ * row, and the Hub filter bar. Same visual language (rounded pill, mono
+ * font, accent border on active) across all three to make the tagging
+ * model feel like a single unified system. */
+.tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 0;
+    min-height: 32px;
+}
+.tag-empty { color: var(--fg-dim); font-size: 12px; }
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px 3px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 99px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-muted);
+}
+.tag-remove {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--fg-dim);
+    width: 18px;
+    height: 18px;
+    line-height: 1;
+    border-radius: 99px;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+}
+.tag-remove:hover { background: var(--surface-3); color: var(--fg); }
+.tag-hint { color: var(--fg-dim); font-size: 11px; margin: 4px 0 0; }
+
+.hub-tag-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 10px;
+}
+.tag-pill {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    color: var(--fg-muted);
+    padding: 4px 10px;
+    border-radius: 99px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background var(--t-fast, 120ms), color var(--t-fast, 120ms), border-color var(--t-fast, 120ms);
+}
+.tag-pill:hover { background: var(--surface-2); color: var(--fg); }
+.tag-pill.is-active {
+    background: var(--accent-dim, rgba(253, 125, 0, 0.16));
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.recent-row-tags {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    margin-left: 6px;
+}
+.recent-row-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--fg-dim);
+    padding: 1px 6px;
+    background: var(--surface-2);
+    border-radius: 99px;
+}

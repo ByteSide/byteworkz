@@ -66,11 +66,19 @@ export const recent = {
         return r.slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     },
     touch(meta) {
-        // meta: { id, app, title, updatedAt }
+        // meta: { id, app, title, updatedAt, tags? }
+        // tags is optional — the Hub renders tag-filter pills from this array
+        // so we don't have to load every doc just to enumerate tags.
         const r = lsGetJSON(KEY_RECENT, []);
         const idx = r.findIndex(x => x.id === meta.id);
         if (idx >= 0) r.splice(idx, 1);
-        r.unshift({ id: meta.id, app: meta.app, title: meta.title, updatedAt: meta.updatedAt });
+        r.unshift({
+            id: meta.id,
+            app: meta.app,
+            title: meta.title,
+            updatedAt: meta.updatedAt,
+            tags: Array.isArray(meta.tags) ? meta.tags : []
+        });
         // Cap to MAX_RECENT — also delete the dropped docs' blobs so they
         // don't sit in localStorage orphaned (accessible by no UI).
         while (r.length > MAX_RECENT) {
@@ -86,6 +94,16 @@ export const recent = {
     },
     get(id) {
         return lsGetJSON(KEY_RECENT, []).find(x => x.id === id) || null;
+    },
+    /* All unique tag strings used across the recent list, sorted alphabetically.
+     * Empty array if no doc has any tags. */
+    allTags() {
+        const r = lsGetJSON(KEY_RECENT, []);
+        const set = new Set();
+        for (const e of r) {
+            if (Array.isArray(e.tags)) e.tags.forEach(t => set.add(t));
+        }
+        return Array.from(set).sort();
     }
 };
 
@@ -101,7 +119,13 @@ export const docs = {
     save(doc, { silent = false } = {}) {
         if (!doc || !doc.id) return false;
         const ok = lsSetJSON(KEY_DOC_PREFIX + doc.id, doc);
-        if (ok && !silent) recent.touch({ id: doc.id, app: doc.app, title: doc.title || 'Untitled', updatedAt: doc.updatedAt || new Date().toISOString() });
+        if (ok && !silent) recent.touch({
+            id: doc.id,
+            app: doc.app,
+            title: doc.title || 'Untitled',
+            updatedAt: doc.updatedAt || new Date().toISOString(),
+            tags: doc.tags || []
+        });
         return ok;
     },
     load(id) {

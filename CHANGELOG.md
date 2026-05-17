@@ -4,6 +4,27 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.16] — 2026-05-17 — "document tagging"
+
+Documents can now carry a small set of free-form tags. The Hub gets a
+tag-filter pill row above Recent, the Ctrl+K palette gains a `#tag`
+search prefix, and both byteDoc / byteSheet get a 🏷 toolbar button.
+
+### Added
+
+- **Per-doc `tags: []`** array, stored in the document JSON alongside `title` / `html` / `sheets`. Survives save/load and JSON file round-trip.
+- **Shared `tagEditorDialog(doc, onChange)`** in `ui.js` — modal with chip-list + input. Tags are normalised: lowercased, trimmed, `[a-z0-9_-]` only (everything else stripped), max 20 chars, max 8 per doc. Both apps invoke it via their 🏷 toolbar button.
+- **Hub tag-filter bar** above the recent list — one pill per unique tag across recent documents, plus an "All" pill to clear. Hidden entirely when no document carries tags (zero clutter for tagless users). Active pill gets accent border + tinted background.
+- **Inline tag chips** on each recent-list row (small, mono, `#tag`) so the user sees at a glance which tags a document carries.
+- **Ctrl+K palette `#tag` prefix** — typing `#fin` filters the palette to docs tagged with anything containing `fin`. Built-in actions (Hub, New doc, etc) still surface in tag-filter mode so the user isn't trapped without escape hatches.
+- **`recent.allTags()`** helper on storage.js — sorted unique tag list across recent. Used by the palette and would let any future surface (a settings panel?) enumerate tags cheaply.
+- **`recent.touch()` schema** extended with optional `tags` — the recent-list entry mirrors the doc's tags so the Hub renders tag pills without round-tripping through every doc's full localStorage blob.
+
+### Design notes
+
+- Tags live both in the doc JSON *and* in the recent-list entry — duplicated state, but the Hub would otherwise have to deserialize every doc to know which tags exist. We pay the dual-write cost in `recent.touch()` for a much cheaper Hub render.
+- Lowercase normalisation eliminates `Work` vs `work` collisions without surfacing a "tag taxonomy" UI. If someone wants `My-Project` as a display label, they get `my-project` instead — predictable, no surprises.
+
 ## [0.4.15] — 2026-05-17 — "markdown export"
 
 byteDoc now exports to GitHub-flavored Markdown — the format most

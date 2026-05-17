@@ -171,6 +171,77 @@ export function closeContextMenu() {
     }
 }
 
+/* ── Tag editor (shared by byteDoc + byteSheet) ──────────────────────────
+ * Mutates `doc.tags` (creating it as [] if missing) and calls onChange()
+ * after every add / remove so the caller can mark-dirty + save. The dialog
+ * renders the current tags as chips with an × button; an input below the
+ * chip row adds a new tag on Enter. Tags are normalised:
+ *   - trimmed
+ *   - lowercased (so "Work" / "work" don't collide)
+ *   - alphanumerics + hyphen + underscore only (everything else stripped)
+ *   - capped at 20 chars
+ *   - max 8 tags per doc (Excel's namespace pressure isn't a thing here,
+ *     but UI gets noisy past ~8 chips)
+ */
+export function tagEditorDialog(doc, onChange) {
+    if (!Array.isArray(doc.tags)) doc.tags = [];
+
+    const normalise = (raw) => {
+        const t = String(raw || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20);
+        return t || null;
+    };
+    const renderChips = () => {
+        if (!doc.tags.length) return '<span class="tag-empty">No tags yet — type a tag and press Enter to add.</span>';
+        return doc.tags.map(t => `<span class="tag-chip" data-tag="${escapeAttr(t)}">${escapeHtml(t)}<button class="tag-remove" type="button" aria-label="Remove ${escapeAttr(t)}">×</button></span>`).join('');
+    };
+
+    return showModal({
+        title: 'Tags',
+        bodyHTML: `
+            <div class="tag-chips" id="tag-chips">${renderChips()}</div>
+            <input type="text" id="tag-input" placeholder="Add a tag and press Enter" autocomplete="off" spellcheck="false" maxlength="20">
+            <p class="tag-hint">Lowercase, max 8 tags per document.</p>
+        `,
+        actions: [
+            { label: 'Done', kind: 'primary' }
+        ],
+        onMount: (modal) => {
+            const chipsEl = modal.querySelector('#tag-chips');
+            const input = modal.querySelector('#tag-input');
+            input.focus();
+
+            const rerender = () => { chipsEl.innerHTML = renderChips(); };
+
+            chipsEl.addEventListener('click', (e) => {
+                const btn = e.target.closest('.tag-remove');
+                if (!btn) return;
+                const chip = btn.closest('.tag-chip');
+                const t = chip && chip.dataset.tag;
+                if (!t) return;
+                doc.tags = doc.tags.filter(x => x !== t);
+                rerender();
+                onChange();
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                const t = normalise(input.value);
+                if (!t) { input.value = ''; return; }
+                if (doc.tags.includes(t)) { input.value = ''; return; }
+                if (doc.tags.length >= 8) {
+                    toast('Max 8 tags per document.', { kind: 'error' });
+                    return;
+                }
+                doc.tags.push(t);
+                input.value = '';
+                rerender();
+                onChange();
+            });
+        }
+    });
+}
+
 /* tiny escapers */
 export function escapeHtml(s) {
     return String(s == null ? '' : s)

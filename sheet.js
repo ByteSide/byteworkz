@@ -23,7 +23,8 @@ import { docs, file, nowIso } from './storage.js';
 import {
     toast, prompt, confirm, showModal,
     showContextMenu, closeContextMenu,
-    escapeHtml, uid, debounce
+    escapeHtml, uid, debounce,
+    tagEditorDialog
 } from './ui.js';
 import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, refToString, rangeToString, shiftRef, shiftRange } from './sheet-formula.js';
 import { parseCSV, csvToCellsObj } from './csv.js';
@@ -210,6 +211,7 @@ function ensureShape(doc) {
     });
     doc.activeSheet = Math.min(Math.max(0, doc.activeSheet || 0), doc.sheets.length - 1);
     doc.names = doc.names || {}; // workbook-wide named ranges → target text
+    doc.tags = Array.isArray(doc.tags) ? doc.tags : [];
     return doc;
 }
 
@@ -281,6 +283,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="unmerge"    title="Unmerge">⊞</button>
         <button class="btn-icon" data-action="names"      title="Named ranges">Nm</button>
         <button class="btn-icon" data-action="note"       title="Add / edit note">💬</button>
+        <button class="btn-icon" data-action="tags"       title="Edit tags">🏷</button>
         <div class="btn-divider"></div>
         <button class="btn-icon" data-action="insert-chart" title="Insert chart">📊</button>
         <button class="btn-icon" data-action="insert-row"   title="Insert row above">+R</button>
@@ -331,6 +334,7 @@ function handleAction(action) {
         case 'unmerge':      return unmergeAtActive();
         case 'names':        return showNamesDialog();
         case 'note':         return editActiveNote();
+        case 'tags':         return editDocTags();
         case 'insert-chart': return insertChartDialog();
         case 'insert-row':   return insertRowAtActive();
         case 'insert-col':   return insertColAtActive();
@@ -503,6 +507,16 @@ function mergeSelection() {
  *
  * Notes survive both clear-contents (v/f removed) and clear-format (s
  * removed). To remove the note itself, open the dialog and submit empty. */
+/* Tag editor — same shape used in doc.js. Operates on state.doc.tags
+ * (array of strings). Chips list current tags with × to remove; input below
+ * adds a new tag on Enter or blur. Normalises to lowercase, trims, dedupes,
+ * caps tag length to 20 chars + max 8 tags per doc. */
+async function editDocTags() {
+    commitEdit();
+    state.doc.tags = Array.isArray(state.doc.tags) ? state.doc.tags : [];
+    await tagEditorDialog(state.doc, () => { markDirty(); saveNow(); });
+}
+
 async function editActiveNote() {
     commitEdit();
     const ref = state.activeRef;

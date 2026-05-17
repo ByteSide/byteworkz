@@ -21,7 +21,7 @@
 
 import { topbar } from './app.js';
 import { docs, file, nowIso } from './storage.js';
-import { toast, prompt, confirm, showModal, showContextMenu, closeContextMenu, escapeHtml, uid, debounce } from './ui.js';
+import { toast, prompt, confirm, showModal, showContextMenu, closeContextMenu, escapeHtml, uid, debounce, tagEditorDialog } from './ui.js';
 
 // Registry-Bootstrap muss in jedem App-Modul stehen — bei ES-Modul-Eval-Order
 // (depth-first post-order) läuft doc.js + sheet.js vor app.js' Body, also kann
@@ -213,6 +213,7 @@ function newDoc(title = 'Untitled') {
         html: '<p><br></p>',
         createdAt: nowIso(),
         updatedAt: nowIso(),
+        tags: [],
         dirty: false
     };
 }
@@ -227,7 +228,8 @@ function persistDoc(d, opts) {
         app: APP_MIME, version: APP_VERSION,
         id: d.id, title: d.title,
         createdAt: d.createdAt, updatedAt: d.updatedAt,
-        html: d.html
+        html: d.html,
+        tags: Array.isArray(d.tags) ? d.tags : []
     }, opts);
 }
 
@@ -402,6 +404,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="open" title="Open file (Ctrl+O)">⤒</button>
         <button class="btn-icon" data-action="export-html" title="Export HTML">↗</button>
         <button class="btn-icon" data-action="export-md" title="Export Markdown">MD</button>
+        <button class="btn-icon" data-action="tags" title="Edit tags">🏷</button>
         <button class="btn-icon" data-action="print" title="Print (Ctrl+P)">⎙</button>
     </div>`;
 }
@@ -450,6 +453,7 @@ function handleAction(action) {
     if (action === 'open') return doOpen();
     if (action === 'export-html') return doExportHtml();
     if (action === 'export-md') return doExportMarkdown();
+    if (action === 'tags') return editDocTags();
     if (action === 'print') return window.print();
 }
 
@@ -1642,6 +1646,19 @@ function doExportMarkdown() {
     const md = htmlToMarkdown(state.editor.innerHTML);
     file.download(safeFilename(d.title) + '.md', md, 'text/markdown');
     toast('Markdown exported.', { kind: 'ok' });
+}
+
+/* Tag editor — delegates to the shared ui.js dialog. Marks the doc dirty
+ * after every chip mutation so changes hit disk without waiting for the
+ * usual debounced editor save. */
+async function editDocTags() {
+    const d = active(); if (!d) return;
+    if (!Array.isArray(d.tags)) d.tags = [];
+    await tagEditorDialog(d, () => {
+        d.dirty = true;
+        d.updatedAt = nowIso();
+        persistDoc(d);
+    });
 }
 
 /* ---------------- Global keybindings ---------------- */

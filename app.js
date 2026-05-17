@@ -407,9 +407,20 @@ function openCmdPalette() {
 
     input.addEventListener('input', () => {
         const q = input.value.trim().toLowerCase();
-        filtered = q
-            ? items.filter(it => (it.title + ' ' + (it.meta || '')).toLowerCase().includes(q))
-            : items;
+        if (q.startsWith('#') && q.length > 1) {
+            // Tag-filter mode: match documents whose `tags` array contains the
+            // (sub)string after `#`. Actions still surface — they're rarely
+            // tagged and shouldn't disappear when a tag filter is active.
+            const tagQ = q.slice(1);
+            filtered = items.filter(it =>
+                it.kind === 'action' ||
+                (Array.isArray(it.tags) && it.tags.some(t => t.includes(tagQ)))
+            );
+        } else {
+            filtered = q
+                ? items.filter(it => (it.title + ' ' + (it.meta || '') + ' ' + ((it.tags || []).map(t => '#' + t).join(' '))).toLowerCase().includes(q))
+                : items;
+        }
         active = 0;
         renderList();
     });
@@ -453,6 +464,7 @@ function buildPaletteItems() {
                 icon: isDoc ? '📄' : '▦',
                 title: r.title || 'Untitled',
                 meta:  isDoc ? 'byteDoc' : 'byteSheet',
+                tags:  Array.isArray(r.tags) ? r.tags : [],
                 run: () => { location.hash = (isDoc ? '#/doc/' : '#/sheet/') + r.id; }
             });
         }
@@ -609,14 +621,24 @@ function importCSVAsNewDoc(text, filename) {
     location.hash = '#/sheet/' + doc.id;
 }
 
+// Module-level state for the Hub tag filter: which tag is currently
+// selected (null = no filter, show everything). Reset on every renderHub.
+let _hubTagFilter = null;
+
 function renderRecent() {
     const list = document.getElementById('recent-list');
     list.innerHTML = '';
-    const items = recent.list();
+    const allItems = recent.list();
+    renderTagFilterBar(allItems);
+    const items = _hubTagFilter
+        ? allItems.filter(m => Array.isArray(m.tags) && m.tags.includes(_hubTagFilter))
+        : allItems;
     if (items.length === 0) {
         const empty = document.createElement('li');
         empty.className = 'recent-empty';
-        empty.textContent = 'No documents yet. Open byteDoc or byteSheet to start.';
+        empty.textContent = _hubTagFilter
+            ? `No documents tagged #${_hubTagFilter}.`
+            : 'No documents yet. Open byteDoc or byteSheet to start.';
         list.appendChild(empty);
         return;
     }
@@ -626,9 +648,13 @@ function renderRecent() {
         li.dataset.id = m.id;
         const isDoc = m.app === 'bytedoc';
         const route = isDoc ? '#/doc/' + m.id : '#/sheet/' + m.id;
+        const tagChips = Array.isArray(m.tags) && m.tags.length
+            ? '<span class="recent-row-tags">' + m.tags.map(t => `<span class="recent-row-tag">#${escapeHtml(t)}</span>`).join('') + '</span>'
+            : '';
         li.innerHTML = `
             <div class="recent-row-icon">${isDoc ? docIconSvg() : sheetIconSvg()}</div>
             <div class="recent-row-name">${escapeHtml(m.title || 'Untitled')}</div>
+            ${tagChips}
             <span class="recent-row-badge">${isDoc ? 'doc' : 'sheet'}</span>
             <span class="recent-row-meta">${fmtRelative(m.updatedAt)}</span>
             <button class="recent-row-del" title="Delete">✕</button>
@@ -652,6 +678,43 @@ function renderRecent() {
         });
         list.appendChild(li);
     });
+}
+
+/* Tag filter row rendered above the recent list. Hidden when no docs
+ * carry tags (no clutter for users who don't use tagging). Click on a pill
+ * sets the filter and re-renders; click "All" or the active pill clears. */
+function renderTagFilterBar(items) {
+    let bar = document.getElementById('hub-tag-filter');
+    const tags = new Set();
+    items.forEach(m => { if (Array.isArray(m.tags)) m.tags.forEach(t => tags.add(t)); });
+    const tagList = Array.from(tags).sort();
+
+    if (!tagList.length) {
+        if (bar) bar.remove();
+        _hubTagFilter = null;
+        return;
+    }
+
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'hub-tag-filter';
+        bar.className = 'hub-tag-filter';
+        // Insert just above the recent-list. The Hub's structure is
+        // .hub-recent > h2 + ul#recent-list, so we drop the bar inside
+        // .hub-recent right before #recent-list.
+        const list = document.getElementById('recent-list');
+        list.parentNode.insertBefore(bar, list);
+    }
+    bar.innerHTML =
+        `<button class="tag-pill${_hubTagFilter === null ? ' is-active' : ''}" data-tag="">All</button>` +
+        tagList.map(t => `<button class="tag-pill${_hubTagFilter === t ? ' is-active' : ''}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`).join('');
+    bar.onclick = (e) => {
+        const btn = e.target.closest('.tag-pill');
+        if (!btn) return;
+        const t = btn.dataset.tag;
+        _hubTagFilter = t || null;
+        renderRecent();
+    };
 }
 
 function docIconSvg() {
