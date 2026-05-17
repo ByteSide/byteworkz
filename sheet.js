@@ -23,7 +23,7 @@ import { docs, file, nowIso } from './storage.js';
 import {
     toast, prompt, confirm, showModal,
     showContextMenu, closeContextMenu,
-    escapeHtml, uid, debounce,
+    escapeHtml, escapeAttr, uid, debounce,
     tagEditorDialog
 } from './ui.js';
 import { evaluate, colToNum, numToCol, splitRef, rewriteFormula, refToString, rangeToString, shiftRef, shiftRange } from './sheet-formula.js';
@@ -1136,6 +1136,11 @@ function applyFill(srcBounds, fillRange, direction) {
 
     for (const { r, cn, idx } of targets) {
         const ref = numToCol(cn) + r;
+        // Skip targets that fall inside a merge but aren't the anchor —
+        // writing there creates zombie data on a cell that renderGrid
+        // never paints, and would reappear if the user later unmerged.
+        const mi = findMergeIndex(sh, ref);
+        if (mi >= 0 && mergeAnchor(sh.merges[mi]) !== ref) continue;
         const crossKey = isVertical ? cn : r;
         const a = analyses.get(crossKey);
         if (!a) continue;
@@ -1821,10 +1826,16 @@ async function doPaste() {
     while (rows.length && rows[rows.length - 1] === '') rows.pop();
     const [c, r] = splitRef(state.activeRef);
     const c0 = colToNum(c);
+    const sh = activeSheet();
     rows.forEach((line, ri) => {
         const cells = line.split('\t');
         cells.forEach((val, ci) => {
             const ref = numToCol(c0 + ci) + (r + ri);
+            // Skip writes to non-anchor cells of any merge in the paste
+            // target — the TD isn't rendered, and the value would become
+            // zombie data revealed only after a later unmerge.
+            const mi = findMergeIndex(sh, ref);
+            if (mi >= 0 && mergeAnchor(sh.merges[mi]) !== ref) return;
             setCellValueFromInput(ref, val);
         });
     });
@@ -2172,7 +2183,7 @@ function showFilterPopover() {
     let html = '';
     Array.from(distinct.keys()).sort().forEach(k => {
         const checked = activeFilterOnThisCol ? activeFilterOnThisCol.has(k) : true;
-        html += `<label><input type="checkbox" ${checked ? 'checked' : ''} value="${escapeHtml(k)}"> ${escapeHtml(k || '(empty)')}</label>`;
+        html += `<label><input type="checkbox" ${checked ? 'checked' : ''} value="${escapeAttr(k)}"> ${escapeHtml(k || '(empty)')}</label>`;
     });
     html += `<div class="filter-actions">
         <button class="btn-secondary" data-act="all">All</button>
@@ -3036,6 +3047,11 @@ function captureSnapshot() {
     return {
         sheets: deepClone(state.doc.sheets),
         activeSheet: state.doc.activeSheet,
+        // Names participate in formula evaluation — without including them
+        // in the snapshot, undoing past a name's creation would leave it in
+        // the registry, and formulas that reference a name added AFTER the
+        // restored state would still evaluate against the live (later) name.
+        names: deepClone(state.doc.names || {}),
         activeRef: state.activeRef,
         selStart: state.selStart,
         selEnd: state.selEnd
@@ -3064,10 +3080,12 @@ function commitSnapshot() {
 }
 
 function restoreSnapshot(snap) {
-    // Title is preserved across restores (not in snapshot). Everything else
+    // Title and tags are preserved across restores (not in snapshot — they
+    // are workbook-metadata, not formula-affecting state). Everything else
     // gets rebuilt from the snapshot, then dep-graph + visuals refresh.
     state.doc.sheets = deepClone(snap.sheets);
     state.doc.activeSheet = snap.activeSheet;
+    state.doc.names = deepClone(snap.names || {});
     state.activeRef = snap.activeRef;
     state.selStart = snap.selStart;
     state.selEnd = snap.selEnd;

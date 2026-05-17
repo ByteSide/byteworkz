@@ -4,6 +4,28 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.18] — 2026-05-17 — "audit pass 13"
+
+A second deeper audit after pass 12 — found one XSS and four logic bugs
+that pass 12 didn't catch (different focus: merge × bulk-write ops,
+snapshot completeness, attribute escaping).
+
+### KRITISCH (Sicherheit)
+
+- **Filter popover XSS via cell content** — the column filter dialog reflected each distinct cell value into a `<label><input value="${escapeHtml(k)}">` checkbox. `escapeHtml` does not escape `"`, so a cell containing `"><script>alert(1)</script>` would break out of the value attribute and execute on filter-open. Root cause: wrong escaper for attribute context. **Fixed** by switching to `escapeAttr` (which adds `"` → `&quot;` on top of the html escapes). Imported `escapeAttr` from `ui.js` for the first time in `sheet.js`; the same attribute-context audit applied to all `value="${escapeHtml(...)}"` and `data-X="${escapeHtml(...)}"` patterns in the file. Other sites' inputs were already constrained to letter/digit-only namespaces (cell refs, defined-name pattern, uid()) and so were safe in practice; the filter-popover one was the only reachable injection.
+
+### WICHTIG (Datenintegrität)
+
+- **Fill-handle drag wrote zombie data into merged cells** — `applyFill` blindly assigned `sh.cells[ref] = newCell` for each target. Cells that fell inside a merge rectangle but weren't the anchor have no rendered `<td>`, so the write created invisible data that would reappear if the user later unmerged. **Fixed** by skipping the assignment when `ref` is in a merge and not its anchor. Anchor cells in a fill range still get overwritten — that's the expected Excel-style behaviour.
+- **Clipboard paste did the same** — `doPaste` looped `setCellValueFromInput(ref, val)` over the TSV grid with the same blind-write issue. **Fixed** the same way: skip writes to non-anchor merge cells inside the paste target.
+- **Undo did not restore `doc.names`** — `captureSnapshot()` cloned `state.doc.sheets` but not `state.doc.names`. Undoing past a name's creation left it in the live registry, and any formula using that name continued to resolve against the wrong (later) target. Tags were deliberately excluded from snapshots since they're not formula-affecting metadata; named ranges *are*, so they go in. **Fixed** by deep-cloning `state.doc.names` in both `captureSnapshot` and `restoreSnapshot`.
+
+### Scope notes
+
+- `doc.tags` is intentionally NOT in the snapshot — undoing past a tag mutation would surprise users (an unrelated cell-undo also reverts a tag they don't expect to see in the undo path).
+- Hub `bar.onclick = (e) => {...}` assignment was checked: each render reassigns, no listener accumulation. Same for `bindOnce` paths.
+- Service Worker shell list verified to include `csv.js` + `cond-format.js`. No missing-shell issue.
+
 ## [0.4.17] — 2026-05-17 — "audit pass 12"
 
 Systematic audit after three back-to-back feature additions (cell-notes,
