@@ -306,6 +306,11 @@ function unmount() {
     topbar.clearCenter();
     document.removeEventListener('keydown', onGlobalKey, true);
     state.mounted = false;
+    // Disconnect the outline IntersectionObserver — without this it keeps
+    // holding refs to the detached editor headings and to its own closure
+    // (containing state + editor refs), preventing GC across mount/unmount
+    // cycles. Cumulative growth over many app switches in one session.
+    if (state.outlineIO) { state.outlineIO.disconnect(); state.outlineIO = null; }
     // Clear activeId so that the next mount of any doc (including this same
     // one) properly populates the freshly-rebuilt editor. Without this, the
     // setActive early-return added above would short-circuit on remount and

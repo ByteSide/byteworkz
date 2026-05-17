@@ -2375,7 +2375,7 @@ async function showNamesDialog() {
             <div class="cf-rule-row">
                 <span class="cf-rule-preview" style="font-family:var(--mono)">${escapeHtml(n)}</span>
                 <span class="cf-rule-desc">→ ${escapeHtml(t)}</span>
-                <button class="btn-icon cf-rule-delete" data-name="${escapeHtml(n)}" title="Delete name" type="button">✕</button>
+                <button class="btn-icon cf-rule-delete" data-name="${escapeAttr(n)}" title="Delete name" type="button">✕</button>
             </div>`).join('');
     };
 
@@ -2391,7 +2391,7 @@ async function showNamesDialog() {
             <label>Name</label>
             <input type="text" id="nm-name" placeholder="MyRange" autocomplete="off" spellcheck="false">
             <label>Refers to</label>
-            <input type="text" id="nm-target" value="${escapeHtml(defaultTarget)}" placeholder="A1, A1:B10, Sheet2!A1, or 0.19" autocomplete="off" spellcheck="false">
+            <input type="text" id="nm-target" value="${escapeAttr(defaultTarget)}" placeholder="A1, A1:B10, Sheet2!A1, or 0.19" autocomplete="off" spellcheck="false">
             <p class="cf-empty" style="margin:6px 0 0;font-size:11px;">Targets must be a single cell ref, range ref, or number — no expressions.</p>
             <hr class="cf-sep">
             <label>Defined names (workbook)</label>
@@ -2448,9 +2448,9 @@ async function showCondFormatDialog() {
     const existingHTML = sh.condFormat.length
         ? sh.condFormat.map(r => `
             <div class="cf-rule-row">
-                <span class="cf-rule-preview" style="background:${escapeHtml(r.style.bg || '#222')};color:${escapeHtml(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
+                <span class="cf-rule-preview" style="background:${escapeAttr(r.style.bg || '#222')};color:${escapeAttr(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
                 <span class="cf-rule-desc">${escapeHtml(describeRule(r.rule))}</span>
-                <button class="btn-icon cf-rule-delete" data-id="${escapeHtml(r.id)}" title="Delete rule" type="button">✕</button>
+                <button class="btn-icon cf-rule-delete" data-id="${escapeAttr(r.id)}" title="Delete rule" type="button">✕</button>
             </div>
         `).join('')
         : '<p class="cf-empty">No rules yet — add one above.</p>';
@@ -2459,7 +2459,7 @@ async function showCondFormatDialog() {
         title: 'Conditional formatting',
         bodyHTML: `
             <label>Apply to range</label>
-            <input type="text" id="cf-range" value="${escapeHtml(defaultRange)}" placeholder="A1 or A1:B10">
+            <input type="text" id="cf-range" value="${escapeAttr(defaultRange)}" placeholder="A1 or A1:B10">
             <label>When cell value is</label>
             <select id="cf-type">
                 <option value="gt">Greater than</option>
@@ -2560,9 +2560,9 @@ async function showCondFormatDialog() {
                 if (sh.condFormat.length) {
                     list.innerHTML = sh.condFormat.map(r => `
                         <div class="cf-rule-row">
-                            <span class="cf-rule-preview" style="background:${escapeHtml(r.style.bg || '#222')};color:${escapeHtml(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
+                            <span class="cf-rule-preview" style="background:${escapeAttr(r.style.bg || '#222')};color:${escapeAttr(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
                             <span class="cf-rule-desc">${escapeHtml(describeRule(r.rule))}</span>
-                            <button class="btn-icon cf-rule-delete" data-id="${escapeHtml(r.id)}" title="Delete rule" type="button">✕</button>
+                            <button class="btn-icon cf-rule-delete" data-id="${escapeAttr(r.id)}" title="Delete rule" type="button">✕</button>
                         </div>
                     `).join('');
                 } else {

@@ -4,6 +4,35 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.19] — 2026-05-17 — "audit pass 14"
+
+Third audit round (memory leaks + defense-in-depth on attribute
+escaping). Different lens than passes 12 and 13 (cleanup paths,
+tampered-file scenarios).
+
+### WICHTIG
+
+- **`outlineIO` IntersectionObserver not disconnected on byteDoc unmount** — the IO held references to the detached editor's `<h1>`/`<h2>`/`<h3>` headings *and* its own closure (holding refs to `state` and `editor`). Over many mount/unmount cycles (route changes between byteDoc / Hub / byteSheet), these would accumulate and prevent GC of an unbounded number of DOM trees. **Fixed** by adding `state.outlineIO.disconnect(); state.outlineIO = null;` to `unmount()`.
+- **CF rule preview's `style` attribute used `escapeHtml` on background / text colors** — `escapeHtml` doesn't escape `"`. A tampered JSON file with `cell.s.bg = 'red"; position:fixed; inset:0; z-index:9999; background:url(huge.png)`-style content could break out of the style attribute and inject arbitrary CSS into the modal, hijacking the UI. In modern browsers no JS execution (CSS `url(javascript:)` is blocked), but the modal could be visually compromised. **Fixed** by switching to `escapeAttr` for both `background:` and `color:` values in `cf-rule-preview` rendering.
+
+### MINOR (defense-in-depth attribute escaping)
+
+The attribute-context audit started in pass 13 covered cell content (the filter-popover XSS). This pass covers every remaining `attribute="${escapeHtml(...)}"` site where the input *could* contain a `"` if it arrived via a hand-crafted JSON file rather than the constrained UI paths:
+
+- `app.js:721` — Hub tag pill `data-tag` (normalised tags are `[a-z0-9_-]` only, but a tampered JSON could supply anything in `doc.tags`).
+- `sheet.js:2378` — named-range delete-button `data-name` (NAME_PATTERN enforced on input, but a tampered file's `doc.names` could carry anything).
+- `sheet.js:2453` and `sheet.js:2565` — CF rule delete-button `data-id` (uid('cf') format normally, free-form in a tampered file).
+- `sheet.js:2394` and `sheet.js:2462` — `value=` on Named-Range target and CF range inputs (cell-ref-shaped on the UI path; free-form via tampered file).
+
+All seven now route through `escapeAttr`. `escapeAttr` in `app.js` is freshly imported alongside `escapeHtml`.
+
+### Investigated and accepted
+
+- **`tarjan strongconnect` is recursive** — stack overflow possible for formula chains > ~10k. Sheets cap at 1000 rows × 80 cols, max chain length within a single column = 1000 < V8's stack limit. Skipped (refactor cost > risk).
+- **`fullRecompute` 30-pass fixed-point cap** — chains > 30 deep would not fully resolve. Same cap analysis; skipped.
+- **Image-paste `<img src="${dataURL}">`** — DataURLs are spec-bounded (no `"`), no XSS. Defense-in-depth via DOM construction would help only against non-compliant browsers; skipped.
+- **byteDoc snapshot doesn't include `tags`** — intentional (workbook-meta, not editor-state), same rationale as byteSheet.
+
 ## [0.4.18] — 2026-05-17 — "audit pass 13"
 
 A second deeper audit after pass 12 — found one XSS and four logic bugs

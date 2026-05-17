@@ -12,7 +12,7 @@
  */
 
 import { recent, docs, file, nowIso } from './storage.js';
-import { toast, fmtRelative, uid, confirm, showModal, escapeHtml } from './ui.js';
+import { toast, fmtRelative, uid, confirm, showModal, escapeHtml, escapeAttr } from './ui.js';
 import { parseCSV, csvToCellsObj } from './csv.js';
 
 window.ByteWorkz = window.ByteWorkz || { apps: [] };
@@ -718,7 +718,7 @@ function renderTagFilterBar(items) {
     }
     bar.innerHTML =
         `<button class="tag-pill${_hubTagFilter === null ? ' is-active' : ''}" data-tag="">All</button>` +
-        tagList.map(t => `<button class="tag-pill${_hubTagFilter === t ? ' is-active' : ''}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`).join('');
+        tagList.map(t => `<button class="tag-pill${_hubTagFilter === t ? ' is-active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('');
     bar.onclick = (e) => {
         const btn = e.target.closest('.tag-pill');
         if (!btn) return;
