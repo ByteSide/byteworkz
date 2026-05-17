@@ -1,6 +1,6 @@
 {
-  "version": "0.4.10",
-  "date": "2026-05-16",
-  "build": "frozen-panes",
+  "version": "0.4.11",
+  "date": "2026-05-17",
+  "build": "cell-merge",
   "apps": ["byteDoc", "byteSheet"]
 }

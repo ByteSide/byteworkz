@@ -4,6 +4,25 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.11] — 2026-05-17 — "cell merge"
+
+byteSheet now supports rectangular cell merges — span a header across
+multiple columns, group a label across rows, build a proper title row
+without resorting to a long string trailing into the next cell.
+
+### Added
+
+- **Two toolbar buttons** in byteSheet: `⊟` (merge selection) and `⊞` (unmerge active cell). Also wired into the right-click context menu.
+- **Per-sheet `merges: [{a, b}]`** array on each sheet. Each entry is the two corners of a rectangle; the top-left is the "anchor" where data lives.
+- **`renderGrid` skip + colspan/rowspan** — non-anchor cells in a merge are omitted entirely from the HTML; the anchor `<td>` carries `colspan`/`rowspan` matching the rectangle's dimensions. Table layout stays correct under the existing `table-layout: fixed` + per-column width scheme.
+- **Selection snaps to the full rectangle** — clicking anywhere in a merged cell selects the whole merge range so operations (clear, copy, format) act on the merge as a unit. Dragging over a merge during a drag-select extends the selection to its far corner.
+- **Arrow-key nav jumps past merges** — pressing → on a cell adjacent to a merge skips to the cell after the merge instead of landing on a non-rendered cell. Shift-arrow extends through merges to the matching far edge.
+- **Structural-op safety**: `shiftMerges` runs alongside `shiftChartsAndFilter` on every insert/delete row/col. A merge whose corner falls on a deleted row/col is dropped; surviving merges have their corners shifted. Sort refuses to run while merges intersect the data range (with toast prompting unmerge first) — re-ordering rows would scramble the rectangles unpredictably.
+
+### Why this is in scope
+
+It's the last "people expect this on first encounter" feature — alongside frozen panes (v0.4.10) and the upcoming named ranges, the gap to a recognizable mini-spreadsheet closes.
+
 ## [0.4.10] — 2026-05-16 — "frozen panes"
 
 Last obvious spreadsheet feature: freeze the top row and / or first column

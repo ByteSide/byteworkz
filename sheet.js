@@ -95,7 +95,7 @@ function newDoc() {
     };
 }
 function newSheet(name) {
-    return { name, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cells: {}, charts: [] };
+    return { name, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cells: {}, charts: [], merges: [] };
 }
 function activeSheet() { return state.doc.sheets[state.doc.activeSheet]; }
 
@@ -206,6 +206,7 @@ function ensureShape(doc) {
         s.charts = s.charts || [];
         s.condFormat = s.condFormat || [];
         s.freeze = s.freeze || { rows: 0, cols: 0 };
+        s.merges = s.merges || [];
     });
     doc.activeSheet = Math.min(Math.max(0, doc.activeSheet || 0), doc.sheets.length - 1);
     return doc;
@@ -275,6 +276,8 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="cond-format" title="Conditional formatting">CF</button>
         <button class="btn-icon" data-action="freeze-row" title="Freeze top row">⇊R</button>
         <button class="btn-icon" data-action="freeze-col" title="Freeze first column">⇉C</button>
+        <button class="btn-icon" data-action="merge"      title="Merge cells">⊟</button>
+        <button class="btn-icon" data-action="unmerge"    title="Unmerge">⊞</button>
         <div class="btn-divider"></div>
         <button class="btn-icon" data-action="insert-chart" title="Insert chart">📊</button>
         <button class="btn-icon" data-action="insert-row"   title="Insert row above">+R</button>
@@ -321,6 +324,8 @@ function handleAction(action) {
         case 'cond-format':  return showCondFormatDialog();
         case 'freeze-row':   return toggleFreezeRow();
         case 'freeze-col':   return toggleFreezeCol();
+        case 'merge':        return mergeSelection();
+        case 'unmerge':      return unmergeAtActive();
         case 'insert-chart': return insertChartDialog();
         case 'insert-row':   return insertRowAtActive();
         case 'insert-col':   return insertColAtActive();
@@ -360,6 +365,23 @@ function renderGrid() {
     const cols = sh.cols, rows = sh.rows;
     const fr = (sh.freeze && sh.freeze.rows) || 0;
     const fc = (sh.freeze && sh.freeze.cols) || 0;
+    // Pre-compute merge anchors + skipped cells so the inner loop stays cheap.
+    // anchorSpan: anchor-ref → {cs, rs}; skip: refs to omit entirely (they're
+    // covered by the anchor's colspan/rowspan).
+    const anchorSpan = new Map();
+    const skip = new Set();
+    if (sh.merges && sh.merges.length) {
+        for (const m of sh.merges) {
+            const b = mergeBox(m);
+            anchorSpan.set(numToCol(b.c1) + b.r1, { cs: b.c2 - b.c1 + 1, rs: b.r2 - b.r1 + 1 });
+            for (let r = b.r1; r <= b.r2; r++) {
+                for (let c = b.c1; c <= b.c2; c++) {
+                    if (r === b.r1 && c === b.c1) continue;
+                    skip.add(numToCol(c) + r);
+                }
+            }
+        }
+    }
     let html = '';
     // header row
     html += '<thead><tr><th class="sheet-corner"></th>';
@@ -373,7 +395,12 @@ function renderGrid() {
         html += `<tr${rowCls}><th class="row-head${r <= fr ? ' is-frozen-row-head' : ''}" data-row="${r}">${r}</th>`;
         for (let c = 1; c <= cols; c++) {
             const ref = numToCol(c) + r;
-            html += `<td data-ref="${ref}"></td>`;
+            if (skip.has(ref)) continue;
+            const sp = anchorSpan.get(ref);
+            const attrs = sp
+                ? ` colspan="${sp.cs}" rowspan="${sp.rs}" class="is-merged"`
+                : '';
+            html += `<td${attrs} data-ref="${ref}"></td>`;
         }
         html += '</tr>';
     }
@@ -419,6 +446,88 @@ function toggleFreezeCol() {
     markDirty();
     commitSnapshot();
     toast(sh.freeze.cols ? 'First column frozen' : 'First column unfrozen');
+}
+
+/* ── Merge / unmerge ─────────────────────────────────────────────────────
+ * Merge takes the current selection bounds, validates it (must span >1 cell
+ * and not overlap any existing merge), then collapses all but the top-left
+ * cell into the anchor — non-anchor cell data is wiped so we don't carry
+ * hidden ghost values past an unmerge later. Unmerge simply drops the
+ * merge entry whose rectangle contains the active ref. */
+function mergeSelection() {
+    commitEdit();
+    const sh = activeSheet();
+    sh.merges = sh.merges || [];
+    const b = selectionBounds();
+    if (b.c1 === b.c2 && b.r1 === b.r2) {
+        toast('Select 2+ cells to merge.', { kind: 'error' });
+        return;
+    }
+    // Reject overlap with an existing merge (avoid nested / crossing merges).
+    for (const m of sh.merges) {
+        if (rectsOverlap(b, mergeBox(m))) {
+            toast('Selection overlaps an existing merge.', { kind: 'error' });
+            return;
+        }
+    }
+    // Wipe data in non-anchor cells. The anchor keeps its value/formula.
+    const anchorRef = numToCol(b.c1) + b.r1;
+    for (let r = b.r1; r <= b.r2; r++) {
+        for (let c = b.c1; c <= b.c2; c++) {
+            const ref = numToCol(c) + r;
+            if (ref === anchorRef) continue;
+            delete sh.cells[ref];
+        }
+    }
+    sh.merges.push({ a: anchorRef, b: numToCol(b.c2) + b.r2 });
+    state.activeRef = anchorRef;
+    state.selStart = anchorRef;
+    state.selEnd = numToCol(b.c2) + b.r2;
+    fullRecompute();
+    renderGrid();
+    markDirty();
+    commitSnapshot();
+    toast('Cells merged.');
+}
+
+function unmergeAtActive() {
+    commitEdit();
+    const sh = activeSheet();
+    sh.merges = sh.merges || [];
+    const idx = findMergeIndex(sh, state.activeRef);
+    if (idx < 0) { toast('Active cell is not in a merge.', { kind: 'error' }); return; }
+    sh.merges.splice(idx, 1);
+    renderGrid();
+    markDirty();
+    commitSnapshot();
+    toast('Cells unmerged.');
+}
+
+/* Apply rowOp/colOp to all merge rectangles on the modified sheet. A merge
+ * is dropped if either of its corners gets invalidated (op returns null —
+ * happens when a deleted row/col falls inside the merge), or if the resulting
+ * rectangle collapses to a single cell. */
+function shiftMerges({ rowOp, colOp, modifiedSheetIdx }) {
+    const sh = state.doc.sheets[modifiedSheetIdx];
+    if (!sh || !sh.merges || !sh.merges.length) return;
+    sh.merges = sh.merges.filter(m => {
+        const box = mergeBox(m);
+        let c1 = box.c1, c2 = box.c2, r1 = box.r1, r2 = box.r2;
+        if (colOp) {
+            const nc1 = colOp(c1), nc2 = colOp(c2);
+            if (nc1 == null || nc2 == null) return false;
+            c1 = nc1; c2 = nc2;
+        }
+        if (rowOp) {
+            const nr1 = rowOp(r1), nr2 = rowOp(r2);
+            if (nr1 == null || nr2 == null) return false;
+            r1 = nr1; r2 = nr2;
+        }
+        if (c1 === c2 && r1 === r2) return false; // collapsed → not a merge anymore
+        m.a = numToCol(c1) + r1;
+        m.b = numToCol(c2) + r2;
+        return true;
+    });
 }
 
 // Apply the active sheet's persistent filter (if any) by hiding rows whose
@@ -565,13 +674,21 @@ function bindGridEvents() {
         const td = e.target.closest('td[data-ref]');
         if (td) {
             commitEdit();
+            // If the clicked cell is a merge anchor, expand selection to cover
+            // the full rectangle so operations on selection (delete, clear,
+            // copy) act on the whole merge — not just the anchor cell.
+            const sh = activeSheet();
+            const ref = td.dataset.ref;
+            const mIdx = findMergeIndex(sh, ref);
+            const mb = mIdx >= 0 ? mergeBox(sh.merges[mIdx]) : null;
+            const farRef = mb ? numToCol(mb.c2) + mb.r2 : ref;
             if (e.shiftKey) {
-                state.selEnd = td.dataset.ref;
-                state.activeRef = td.dataset.ref;
+                state.selEnd = farRef;
+                state.activeRef = ref;
             } else {
-                state.activeRef = td.dataset.ref;
-                state.selStart = td.dataset.ref;
-                state.selEnd = td.dataset.ref;
+                state.activeRef = ref;
+                state.selStart = ref;
+                state.selEnd = farRef;
             }
             updateSelectionVisual();
             syncFormulaBar();
@@ -582,7 +699,18 @@ function bindGridEvents() {
                 const el = document.elementFromPoint(ev.clientX, ev.clientY);
                 const cell = el && el.closest && el.closest('td[data-ref]');
                 if (cell) {
-                    state.selEnd = cell.dataset.ref;
+                    const r2 = cell.dataset.ref;
+                    // If the drag passes over a merged-anchor cell, snap the
+                    // selection end to that merge's far corner so the visual
+                    // range includes the full merge.
+                    const shD = activeSheet();
+                    const mi = findMergeIndex(shD, r2);
+                    if (mi >= 0) {
+                        const b = mergeBox(shD.merges[mi]);
+                        state.selEnd = numToCol(b.c2) + b.r2;
+                    } else {
+                        state.selEnd = r2;
+                    }
                     updateSelectionVisual();
                     syncFormulaBar();
                 }
@@ -634,7 +762,10 @@ function bindGridEvents() {
             { label: 'Insert row above',   onClick: () => insertRowAtActive() },
             { label: 'Insert column left', onClick: () => insertColAtActive() },
             { label: 'Delete row',         onClick: () => deleteActiveRow() },
-            { label: 'Delete column',      onClick: () => deleteActiveCol() }
+            { label: 'Delete column',      onClick: () => deleteActiveCol() },
+            { sep: true },
+            { label: 'Merge cells',        onClick: () => mergeSelection() },
+            { label: 'Unmerge cells',      onClick: () => unmergeAtActive() }
         ]);
     });
 }
@@ -653,6 +784,47 @@ function selectWholeRow(r) {
     state.selStart = 'A' + r;
     state.selEnd = numToCol(sh.cols) + r;
     updateSelectionVisual(); syncFormulaBar();
+}
+
+/* ── Merges helpers ──────────────────────────────────────────────────────
+ * sh.merges is `[{a, b}]` where a/b are the two corners (any order). The
+ * "anchor" of a merge is the top-left cell — that's where the value lives
+ * and where the rendered <td> with colspan/rowspan sits; all other cells in
+ * the rectangle are skipped during renderGrid. */
+function mergeBox(m) {
+    const [cA, rA] = splitRef(m.a);
+    const [cB, rB] = splitRef(m.b);
+    const cAn = colToNum(cA), cBn = colToNum(cB);
+    return {
+        c1: Math.min(cAn, cBn), c2: Math.max(cAn, cBn),
+        r1: Math.min(rA, rB),   r2: Math.max(rA, rB)
+    };
+}
+function mergeAnchor(m) {
+    const b = mergeBox(m);
+    return numToCol(b.c1) + b.r1;
+}
+function findMergeIndex(sh, ref) {
+    if (!sh.merges) return -1;
+    const [c, r] = splitRef(ref);
+    const cn = colToNum(c);
+    for (let i = 0; i < sh.merges.length; i++) {
+        const b = mergeBox(sh.merges[i]);
+        if (cn >= b.c1 && cn <= b.c2 && r >= b.r1 && r <= b.r2) return i;
+    }
+    return -1;
+}
+function rectsOverlap(a, b) {
+    return !(a.c2 < b.c1 || b.c2 < a.c1 || a.r2 < b.r1 || b.r2 < a.r1);
+}
+/* Move the active ref out of a merge's interior, snapping it to the
+ * merge's anchor. Used by mousedown / arrow-nav / extend-selection so the
+ * cursor never lands on a cell that isn't actually rendered. */
+function resolveActiveRef(ref) {
+    const sh = activeSheet();
+    const idx = findMergeIndex(sh, ref);
+    if (idx < 0) return ref;
+    return mergeAnchor(sh.merges[idx]);
 }
 
 function selectionBounds() {
@@ -1117,10 +1289,25 @@ function moveActive(dx, dy) {
     const sh = activeSheet();
     cn = Math.max(1, Math.min(sh.cols, cn));
     rn = Math.max(1, Math.min(sh.rows, rn));
-    const ref = numToCol(cn) + rn;
+    // If the landing cell sits inside a merge, jump past it in the same
+    // direction (or snap to anchor when arriving from outside via Shift+arrow
+    // backtrack). Then redirect to the anchor so the cursor visually rests on
+    // the rendered cell.
+    let ref = numToCol(cn) + rn;
+    const mi = findMergeIndex(sh, ref);
+    if (mi >= 0) {
+        const b = mergeBox(sh.merges[mi]);
+        if (dx > 0) cn = Math.min(sh.cols, b.c2 + 1);
+        else if (dx < 0) cn = Math.max(1, b.c1 - 1);
+        if (dy > 0) rn = Math.min(sh.rows, b.r2 + 1);
+        else if (dy < 0) rn = Math.max(1, b.r1 - 1);
+        ref = numToCol(cn) + rn;
+        ref = resolveActiveRef(ref); // could still be inside another merge
+    }
+    const mb = (() => { const i = findMergeIndex(sh, ref); return i >= 0 ? mergeBox(sh.merges[i]) : null; })();
     state.activeRef = ref;
     state.selStart = ref;
-    state.selEnd = ref;
+    state.selEnd = mb ? (numToCol(mb.c2) + mb.r2) : ref;
     updateSelectionVisual();
     syncFormulaBar();
 }
@@ -1131,8 +1318,19 @@ function extendSelection(dx, dy) {
     const sh = activeSheet();
     cn = Math.max(1, Math.min(sh.cols, cn));
     rn = Math.max(1, Math.min(sh.rows, rn));
-    state.selEnd = numToCol(cn) + rn;
-    state.activeRef = state.selEnd;
+    let ref = numToCol(cn) + rn;
+    // Extending selection through a merge should snap to the far corner.
+    const mi = findMergeIndex(sh, ref);
+    if (mi >= 0) {
+        const b = mergeBox(sh.merges[mi]);
+        if (dx > 0) cn = b.c2;
+        else if (dx < 0) cn = b.c1;
+        if (dy > 0) rn = b.r2;
+        else if (dy < 0) rn = b.r1;
+        ref = numToCol(cn) + rn;
+    }
+    state.selEnd = ref;
+    state.activeRef = ref;
     updateSelectionVisual();
     syncFormulaBar();
 }
@@ -1649,6 +1847,9 @@ function shiftChartsAndFilter({ rowOp, colOp, modifiedSheetIdx }) {
             return true;
         });
     }
+    // Merges — same drop-or-shift policy. A merge that loses an endpoint to a
+    // deleted row/col, or collapses to a single cell, gets dropped entirely.
+    shiftMerges({ rowOp, colOp, modifiedSheetIdx });
 }
 
 function shiftAllFormulaRefs({ rowOp, colOp, modifiedSheetIdx, force = false, skipRanges = false }) {
@@ -1792,6 +1993,18 @@ function deleteActiveCol() {
 function sortByActiveCol(asc) {
     const [c] = splitRef(state.activeRef);
     const sh = activeSheet();
+    // Refuse if any merge intersects the data rows being sorted — re-ordering
+    // rows would break merge rectangles in unpredictable ways. The user has to
+    // unmerge first; cheap, predictable, no data loss.
+    if (sh.merges && sh.merges.length) {
+        const dataRect = { c1: 1, c2: sh.cols, r1: 2, r2: sh.rows };
+        for (const m of sh.merges) {
+            if (rectsOverlap(dataRect, mergeBox(m))) {
+                toast('Unmerge cells before sorting.', { kind: 'error' });
+                return;
+            }
+        }
+    }
     const firstDataRow = 2; // row 1 is the header
     const rowsData = [];
     for (let r = firstDataRow; r <= sh.rows; r++) {
