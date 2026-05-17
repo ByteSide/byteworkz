@@ -223,14 +223,24 @@ function newDoc(title = 'Untitled') {
 // the canonical URL (#/doc/<id>) yields "Document not found".
 // Pass { silent: true } for the first save of an empty new doc — keeps the
 // abandoned Untitled out of the Recent list until the first real edit.
-function persistDoc(d, opts) {
-    return docs.save({
+/* Single source of truth for the on-disk shape of a byteDoc — every save
+ * path (debounced auto-save, explicit Ctrl+S download, tag-edit immediate
+ * write) must go through this so we don't end up with one path silently
+ * dropping a field that another path adds. Historically, adding `tags`
+ * to two of three paths but not the third caused tags to be wiped on the
+ * next keystroke; consolidating prevents that class of bug entirely. */
+function docPayload(d) {
+    return {
         app: APP_MIME, version: APP_VERSION,
         id: d.id, title: d.title,
         createdAt: d.createdAt, updatedAt: d.updatedAt,
         html: d.html,
         tags: Array.isArray(d.tags) ? d.tags : []
-    }, opts);
+    };
+}
+
+function persistDoc(d, opts) {
+    return docs.save(docPayload(d), opts);
 }
 
 function findOpen(id) { return state.openDocs.find(d => d.id === id) || null; }
@@ -352,8 +362,7 @@ function buildDOM() {
         d.html = cleanHtml(state.editor.innerHTML);
         d.updatedAt = nowIso();
         d.dirty = false;
-        const payload = { app: APP_MIME, version: APP_VERSION, id: d.id, title: d.title, createdAt: d.createdAt, updatedAt: d.updatedAt, html: d.html };
-        const ok = docs.save(payload);
+        const ok = docs.save(docPayload(d));
         setIndicator(ok ? 'saved' : 'error');
     }, 900);
 
@@ -1467,7 +1476,7 @@ function doDownload() {
     // Force flush latest html (strip transient find-hit marks)
     d.html = cleanHtml(state.editor.innerHTML);
     d.updatedAt = nowIso();
-    const payload = { app: APP_MIME, version: APP_VERSION, id: d.id, title: d.title, createdAt: d.createdAt, updatedAt: d.updatedAt, html: d.html };
+    const payload = docPayload(d);
     docs.save(payload);
     file.download(safeFilename(d.title) + '.bytedoc.json', payload);
     toast('Downloaded.', { kind: 'ok' });

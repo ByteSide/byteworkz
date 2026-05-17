@@ -428,7 +428,10 @@ function openCmdPalette() {
         if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(filtered.length - 1, active + 1); renderList(); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(0, active - 1); renderList(); }
         else if (e.key === 'Enter') { e.preventDefault(); runActive(); }
-        else if (e.key === 'Escape') { e.preventDefault(); close(); }
+        // Stop the Escape from also dismissing an underlying showModal —
+        // its document-level keydown handler would receive the same event
+        // and close the parent modal under the palette.
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     });
     list.addEventListener('click', (e) => {
         const li = e.target.closest('.cmd-pal-item');
@@ -693,6 +696,14 @@ function renderTagFilterBar(items) {
         if (bar) bar.remove();
         _hubTagFilter = null;
         return;
+    }
+    // Self-heal stale filter state: if the active filter's tag has been
+    // removed from every document, the pill no longer renders. Clearing
+    // _hubTagFilter avoids a "ghost filter" state where the user sees a
+    // confusing "No documents tagged #X" empty message but no way to
+    // see what tag is active besides clicking "All".
+    if (_hubTagFilter && !tagList.includes(_hubTagFilter)) {
+        _hubTagFilter = null;
     }
 
     if (!bar) {

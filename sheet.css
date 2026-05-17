@@ -406,6 +406,21 @@
      * budget's accent-orange header still reads as a header on paper).
      * Trade-off: extreme dark backgrounds may print badly — that's the
      * user's call when picking colors. */
+    /* Reset sticky positioning of frozen cells / headers — sticky behaves
+     * unpredictably across print engines (Chrome flattens to static, Safari
+     * may overlap content). Forcing static gives identical paper output
+     * regardless of which frozen-pane / merge / corner class is active. */
+    .sheet-grid thead th,
+    .sheet-grid tbody th.row-head,
+    .sheet-grid td.is-frozen-row-cell,
+    .sheet-grid td.is-frozen-col-cell,
+    .sheet-grid td.is-frozen-corner,
+    .sheet-grid tbody th.row-head.is-frozen-row-head,
+    .sheet-grid thead th.is-frozen-col-head {
+        position: static !important;
+        top: auto !important;
+        left: auto !important;
+    }
     .sheet-grid td.is-bold   { font-weight: 700 !important; }
     .sheet-grid td.is-italic { font-style: italic !important; }
     .sheet-grid td.al-l { text-align: left !important; }

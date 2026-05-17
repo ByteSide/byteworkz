@@ -1,6 +1,6 @@
 {
-  "version": "0.4.16",
+  "version": "0.4.17",
   "date": "2026-05-17",
-  "build": "document-tagging",
+  "build": "audit-pass-12",
   "apps": ["byteDoc", "byteSheet"]
 }

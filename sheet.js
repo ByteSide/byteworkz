@@ -556,27 +556,34 @@ function unmergeAtActive() {
     toast('Cells unmerged.');
 }
 
-/* Apply rowOp/colOp to all merge rectangles on the modified sheet. A merge
- * is dropped if either of its corners gets invalidated (op returns null —
- * happens when a deleted row/col falls inside the merge), or if the resulting
- * rectangle collapses to a single cell. */
+/* Apply rowOp/colOp to all merge rectangles on the modified sheet. When a
+ * row/col inside a merge is deleted the corresponding op returns null for
+ * that line; we shrink the merge to skip that line instead of dropping the
+ * whole merge — only if BOTH corners along an axis are invalidated do we
+ * give up on the merge. Collapsed (single-cell) results are dropped too. */
 function shiftMerges({ rowOp, colOp, modifiedSheetIdx }) {
     const sh = state.doc.sheets[modifiedSheetIdx];
     if (!sh || !sh.merges || !sh.merges.length) return;
+    // Walk all values inside [lo, hi], applying op, collecting non-null.
+    // Returns null if every value invalidates (the entire axis is gone).
+    const shrinkAxis = (lo, hi, op) => {
+        if (!op) return [lo, hi];
+        const survivors = [];
+        for (let v = lo; v <= hi; v++) {
+            const nv = op(v);
+            if (nv != null) survivors.push(nv);
+        }
+        if (!survivors.length) return null;
+        return [Math.min(...survivors), Math.max(...survivors)];
+    };
     sh.merges = sh.merges.filter(m => {
         const box = mergeBox(m);
-        let c1 = box.c1, c2 = box.c2, r1 = box.r1, r2 = box.r2;
-        if (colOp) {
-            const nc1 = colOp(c1), nc2 = colOp(c2);
-            if (nc1 == null || nc2 == null) return false;
-            c1 = nc1; c2 = nc2;
-        }
-        if (rowOp) {
-            const nr1 = rowOp(r1), nr2 = rowOp(r2);
-            if (nr1 == null || nr2 == null) return false;
-            r1 = nr1; r2 = nr2;
-        }
-        if (c1 === c2 && r1 === r2) return false; // collapsed → not a merge anymore
+        const cols = shrinkAxis(box.c1, box.c2, colOp);
+        if (!cols) return false;
+        const rows = shrinkAxis(box.r1, box.r2, rowOp);
+        if (!rows) return false;
+        const [c1, c2] = cols, [r1, r2] = rows;
+        if (c1 === c2 && r1 === r2) return false; // collapsed → not a merge
         m.a = numToCol(c1) + r1;
         m.b = numToCol(c2) + r2;
         return true;
@@ -956,8 +963,19 @@ function renderFillHandle() {
     // Anchor at the bottom-right of the current selection (not just active
     // cell — multi-cell selections fill from the whole range).
     const b = selectionBounds();
-    const cornerRef = numToCol(b.c2) + b.r2;
-    const td = state.gridTable.querySelector(`td[data-ref="${cornerRef}"]`);
+    let cornerRef = numToCol(b.c2) + b.r2;
+    let td = state.gridTable.querySelector(`td[data-ref="${cornerRef}"]`);
+    // If the bottom-right corner is a non-rendered cell of a merge (its TD
+    // is covered by the anchor's colspan/rowspan), fall back to the merge's
+    // anchor TD — that's the cell whose visual bottom-right we should pin to.
+    if (!td) {
+        const sh = activeSheet();
+        const mi = findMergeIndex(sh, cornerRef);
+        if (mi >= 0) {
+            const anchor = mergeAnchor(sh.merges[mi]);
+            td = state.gridTable.querySelector(`td[data-ref="${anchor}"]`);
+        }
+    }
     if (!td) {
         if (state.fillHandle) state.fillHandle.hidden = true;
         return;
@@ -2512,35 +2530,33 @@ async function showCondFormatDialog() {
                     modal.querySelector('#cf-c').value  = btn.dataset.c;
                 });
             });
-            // Delete existing rule
-            modal.querySelectorAll('.cf-rule-delete').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const id = btn.dataset.id;
-                    sh.condFormat = sh.condFormat.filter(r => r.id !== id);
-                    paintAllCells();
-                    updateSelectionVisual();
-                    markDirty();
-                    commitSnapshot();
-                    // Re-render the existing-rules list inline so the user
-                    // sees the deletion without closing/reopening the modal.
-                    const list = modal.querySelector('#cf-existing');
-                    if (sh.condFormat.length) {
-                        list.innerHTML = sh.condFormat.map(r => `
-                            <div class="cf-rule-row">
-                                <span class="cf-rule-preview" style="background:${escapeHtml(r.style.bg || '#222')};color:${escapeHtml(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
-                                <span class="cf-rule-desc">${escapeHtml(describeRule(r.rule))}</span>
-                                <button class="btn-icon cf-rule-delete" data-id="${escapeHtml(r.id)}" title="Delete rule" type="button">✕</button>
-                            </div>
-                        `).join('');
-                        // Re-bind delete handlers on the new buttons
-                        list.querySelectorAll('.cf-rule-delete').forEach(b2 => {
-                            b2.addEventListener('click', btn.onclick);
-                        });
-                    } else {
-                        list.innerHTML = '<p class="cf-empty">No rules yet — add one above.</p>';
-                    }
-                });
+            // Delete existing rule — single delegated handler on the list so
+            // it survives innerHTML re-renders without re-binding (an earlier
+            // per-button approach tried `b2.addEventListener('click', btn.onclick)`
+            // which silently no-op'd because btn.onclick was always null —
+            // the original bind used addEventListener, not the .onclick property).
+            const list = modal.querySelector('#cf-existing');
+            list.addEventListener('click', (e) => {
+                const btn = e.target.closest('.cf-rule-delete');
+                if (!btn) return;
+                e.preventDefault();
+                const id = btn.dataset.id;
+                sh.condFormat = sh.condFormat.filter(r => r.id !== id);
+                paintAllCells();
+                updateSelectionVisual();
+                markDirty();
+                commitSnapshot();
+                if (sh.condFormat.length) {
+                    list.innerHTML = sh.condFormat.map(r => `
+                        <div class="cf-rule-row">
+                            <span class="cf-rule-preview" style="background:${escapeHtml(r.style.bg || '#222')};color:${escapeHtml(r.style.c || '#fff')};${r.style.b ? 'font-weight:700;' : ''}${r.style.i ? 'font-style:italic;' : ''}">${escapeHtml(r.range)}</span>
+                            <span class="cf-rule-desc">${escapeHtml(describeRule(r.rule))}</span>
+                            <button class="btn-icon cf-rule-delete" data-id="${escapeHtml(r.id)}" title="Delete rule" type="button">✕</button>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<p class="cf-empty">No rules yet — add one above.</p>';
+                }
             });
         }
     });

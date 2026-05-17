@@ -4,6 +4,33 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.17] — 2026-05-17 — "audit pass 12"
+
+Systematic audit after three back-to-back feature additions (cell-notes,
+markdown-export, document-tagging). One critical data-loss bug plus six
+smaller fixes.
+
+### KRITISCH
+
+- **byteDoc tags wiped on every keystroke** — `saveDebounced` and `doDownload` constructed the save payload as an object literal that left out the freshly-added `tags` field. The user could open the tag dialog, add `#work`, see it stick on the Hub — and then the very next keystroke in the editor would trigger the debounced save with no tags, clobbering the tag list back to empty. Root cause: payload shape duplicated across three save sites; adding `tags` to two of three left the third silently lossy. **Fixed** by extracting a single `docPayload(d)` helper and routing every save through it.
+
+### WICHTIG
+
+- **Conditional-format rule-delete broken after the first click** — the per-button click handler re-bound new buttons via `b2.addEventListener('click', btn.onclick)`, but `btn.onclick` was always `null` because the original bind used `addEventListener`, not the `.onclick` property. Result: deleting one CF rule then trying to delete a second silently no-op'd. **Fixed** by replacing with a single delegated listener on the `#cf-existing` container that survives `innerHTML` rerenders.
+- **Ctrl+K Escape closed underlying modal** — the palette's Escape handler called `e.preventDefault()` but not `e.stopPropagation()`, so the modal stack's own document-level Escape listener also fired and dismissed the modal that was open underneath. **Fixed** with `e.stopPropagation()`.
+- **`shiftMerges` dropped merges too aggressively on delete-row/col** — when a user deleted any row inside a merge rectangle (not just the corner), the old code's null-corner check returned `false` and the entire merge was lost even though Excel-style behaviour is to shrink the merge by one row. **Fixed** with a `shrinkAxis(lo, hi, op)` walker that collects every surviving line in the axis and rebuilds the rectangle from the min/max — only the case where the whole axis vanishes still drops the merge.
+
+### MINOR
+
+- **Fill-handle hidden when selection bottom-right is a non-anchor merge cell** — those cells aren't rendered, so the corner-anchor `<td>` query returned null and the handle disappeared. **Fixed** by falling back to the merge's anchor TD when the corner-ref lookup misses.
+- **Print CSS didn't reset sticky positioning on frozen / merge cells** — `position: sticky` carries unpredictable behaviour into print (Chrome flattens, Safari may overlap). The existing print stylesheet reset the scroll-wrap but not the cells themselves. **Fixed** with explicit `position: static !important` (plus top/left auto) for `thead th`, `row-head`, and all `is-frozen-*` / `is-merged` classes.
+- **Hub "ghost" tag filter** — if the user filtered the Hub by `#work` and then removed `#work` from every document, the filter pill no longer rendered but `_hubTagFilter` stayed set, leaving the user staring at "No documents tagged #work" without an obvious cause. **Fixed** in `renderTagFilterBar`: if the active filter is no longer in the tag list, clear it.
+
+### Scope notes
+
+- **Named-range targets still don't auto-shift** on insert/delete/sheet-rename. Documented limitation, not in this audit's scope.
+- **Insert-row inside a frozen pane** keeps the freeze position the same instead of extending it. Surprising-but-rare; defer.
+
 ## [0.4.16] — 2026-05-17 — "document tagging"
 
 Documents can now carry a small set of free-form tags. The Hub gets a
