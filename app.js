@@ -129,6 +129,17 @@ window.addEventListener('DOMContentLoaded', () => {
     if (aboutBtn) aboutBtn.addEventListener('click', openAboutModal);
     registerServiceWorker();
     bindInstallPrompt();
+    // Global Ctrl+K / Cmd+K → command palette. Bound at the document level
+    // so it works regardless of which view is active or which element holds
+    // focus (the byteSheet grid steals keys; this listener runs at capture
+    // phase to win the race).
+    document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            e.stopPropagation();
+            openCmdPalette();
+        }
+    }, true);
 });
 
 /* ---------------- PWA: service worker + install prompt ---------------- */
@@ -218,6 +229,13 @@ function openAboutModal() {
                 calculates. No accounts, no cloud, no tracking.
                 <span style="font-family:var(--mono);font-size:11px;display:block;margin-top:6px;color:var(--fg-dim);">${escapeHtml(v)}</span>
             </p>
+
+            <div class="about-section">
+                <h3>Global</h3>
+                <div class="about-grid">
+                    <kbd>Ctrl+K</kbd><span>Command palette — jump between documents</span>
+                </div>
+            </div>
 
             <div class="about-section">
                 <h3>byteDoc shortcuts</h3>
@@ -318,6 +336,128 @@ function openAboutModal() {
             });
         }
     });
+}
+
+/* ---------------- Command palette (Ctrl+K) ─────────────────────────────
+ * Lightweight quick-switcher for opening any document or running a built-in
+ * action without leaving the keyboard. Bypasses showModal so we own the
+ * keyboard handling (Up/Down/Enter/Esc) and the filter loop.
+ *
+ * Items come from two sources:
+ *   1. recent.list() — all docs that have been opened recently
+ *   2. a fixed set of built-in actions (Hub, New doc, New sheet, Open file)
+ *
+ * Filter is plain substring matching against `${title} ${app}` lowercased.
+ * No fuzzy ranking — keeps the implementation tiny and predictable. */
+
+let _palOpen = false;
+
+function openCmdPalette() {
+    if (_palOpen) return;
+    _palOpen = true;
+
+    const items = buildPaletteItems();
+    const host = document.createElement('div');
+    host.className = 'cmd-pal-host';
+    host.innerHTML = `
+        <div class="cmd-pal-backdrop"></div>
+        <div class="cmd-pal" role="dialog" aria-label="Command palette">
+            <input class="cmd-pal-input" type="text" placeholder="Search documents and actions…" autocomplete="off" spellcheck="false">
+            <ul class="cmd-pal-list" role="listbox"></ul>
+            <div class="cmd-pal-hint">
+                <kbd>↑</kbd><kbd>↓</kbd> navigate · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
+            </div>
+        </div>
+    `;
+    document.body.appendChild(host);
+
+    const input = host.querySelector('.cmd-pal-input');
+    const list = host.querySelector('.cmd-pal-list');
+    let active = 0;
+    let filtered = items;
+
+    const renderList = () => {
+        if (!filtered.length) {
+            list.innerHTML = '<li class="cmd-pal-empty">No matches</li>';
+            return;
+        }
+        list.innerHTML = filtered.map((it, idx) => `
+            <li class="cmd-pal-item${idx === active ? ' is-active' : ''}" data-idx="${idx}" role="option" aria-selected="${idx === active}">
+                <span class="cmd-pal-icon" data-kind="${it.kind}">${it.icon || ''}</span>
+                <span class="cmd-pal-title">${escapeHtml(it.title)}</span>
+                <span class="cmd-pal-meta">${escapeHtml(it.meta || '')}</span>
+            </li>
+        `).join('');
+        const el = list.querySelector(`[data-idx="${active}"]`);
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    };
+
+    const close = () => {
+        if (!_palOpen) return;
+        _palOpen = false;
+        host.remove();
+    };
+
+    const runActive = () => {
+        const it = filtered[active];
+        if (!it) return;
+        close();
+        try { it.run(); } catch (e) { console.error(e); toast('Failed: ' + e.message, { kind: 'error' }); }
+    };
+
+    input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        filtered = q
+            ? items.filter(it => (it.title + ' ' + (it.meta || '')).toLowerCase().includes(q))
+            : items;
+        active = 0;
+        renderList();
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(filtered.length - 1, active + 1); renderList(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(0, active - 1); renderList(); }
+        else if (e.key === 'Enter') { e.preventDefault(); runActive(); }
+        else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    list.addEventListener('click', (e) => {
+        const li = e.target.closest('.cmd-pal-item');
+        if (!li) return;
+        active = parseInt(li.dataset.idx, 10);
+        runActive();
+    });
+    host.querySelector('.cmd-pal-backdrop').addEventListener('click', close);
+
+    renderList();
+    input.focus();
+}
+
+function buildPaletteItems() {
+    const items = [];
+    // Built-in actions first — they're always available and provide an
+    // anchor for the keyboard-first user who never wants the mouse.
+    items.push(
+        { kind: 'action', icon: '◧', title: 'Go to Hub',           meta: 'home',     run: () => { location.hash = '#/'; } },
+        { kind: 'action', icon: '＋', title: 'New byteDoc',         meta: 'document', run: () => { location.hash = '#/doc'; } },
+        { kind: 'action', icon: '＋', title: 'New byteSheet',       meta: 'spreadsheet', run: () => { location.hash = '#/sheet'; } },
+        { kind: 'action', icon: '⤒', title: 'Open from file…',     meta: 'JSON',     run: openAnyFile }
+    );
+    // Recent docs — title first so the user matches by name. Meta shows the
+    // app type so a "report" could be either bytedoc or bytesheet and the
+    // user can pick the right one.
+    try {
+        const recents = recent.list();
+        for (const r of recents) {
+            const isDoc = r.app === 'bytedoc';
+            items.push({
+                kind: 'doc',
+                icon: isDoc ? '📄' : '▦',
+                title: r.title || 'Untitled',
+                meta:  isDoc ? 'byteDoc' : 'byteSheet',
+                run: () => { location.hash = (isDoc ? '#/doc/' : '#/sheet/') + r.id; }
+            });
+        }
+    } catch (e) { console.warn('recent.list failed', e); }
+    return items;
 }
 
 /* ---------------- Hub view ---------------- */

@@ -1159,3 +1159,117 @@ html[lang="en"] [lang="de"] { display: none; }
 }
 .about-links a { color: var(--accent); text-decoration: none; }
 .about-links a:hover { text-decoration: underline; }
+
+/* ── Command palette (Ctrl+K) ──────────────────────────────────────────
+ * Centered modal that slides in from -8px. Floats above everything
+ * including the existing modal-host so it can be opened from inside a
+ * modal too (rare but possible). Backdrop is a separate sibling so
+ * clicking it closes the palette without interfering with item clicks. */
+.cmd-pal-host {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 18vh;
+}
+.cmd-pal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 10, 13, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+.cmd-pal {
+    position: relative;
+    width: min(560px, 92vw);
+    max-height: 64vh;
+    background: var(--surface);
+    border: 1px solid var(--border-strong, rgba(255,255,255,0.12));
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 2px 4px rgba(0,0,0,0.3);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: cmd-pal-in 120ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes cmd-pal-in {
+    from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+}
+.cmd-pal-input {
+    appearance: none;
+    border: 0;
+    border-bottom: 1px solid var(--border-soft);
+    background: transparent;
+    color: var(--fg);
+    font: 500 15px var(--sans, system-ui), sans-serif;
+    padding: 14px 16px;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+}
+.cmd-pal-input::placeholder { color: var(--fg-dim); }
+.cmd-pal-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+.cmd-pal-item {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--fg);
+    font-size: 14px;
+}
+.cmd-pal-item.is-active {
+    background: var(--accent-dim, rgba(253, 125, 0, 0.16));
+    color: var(--fg);
+}
+.cmd-pal-item:hover:not(.is-active) {
+    background: var(--surface-2);
+}
+.cmd-pal-icon {
+    text-align: center;
+    color: var(--fg-muted);
+    font-size: 16px;
+    line-height: 1;
+}
+.cmd-pal-item.is-active .cmd-pal-icon { color: var(--accent); }
+.cmd-pal-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-pal-meta  { color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+.cmd-pal-empty {
+    padding: 16px;
+    color: var(--fg-dim);
+    text-align: center;
+    font-size: 13px;
+}
+.cmd-pal-hint {
+    padding: 8px 12px;
+    border-top: 1px solid var(--border-soft);
+    color: var(--fg-dim);
+    font-size: 11px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.cmd-pal-hint kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+}

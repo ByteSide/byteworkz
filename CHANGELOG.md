@@ -4,6 +4,22 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.13] — 2026-05-17 — "command palette"
+
+`Ctrl+K` from anywhere opens a quick-switcher: type to filter recent
+documents and built-in actions, arrow-keys to navigate, Enter to open.
+
+### Added
+
+- **Global `Ctrl+K` / `Cmd+K`** captures on `document` at capture phase so it wins the race against byteSheet's grid-key handler and byteDoc's editor.
+- **Slide-in modal** (`.cmd-pal`) — fades in from -8px in 120ms, centered at 18vh from top, blur-backdrop. Width clamped to `min(560px, 92vw)`, max-height 64vh with scrolling list.
+- **Two sources** of palette items:
+  - 4 built-in actions: Go to Hub, New byteDoc, New byteSheet, Open from file…
+  - All entries from `recent.list()` (the same list shown on the Hub), with app-type meta so users with both a "Q1 Report" doc and a "Q1 Report" sheet can disambiguate visually.
+- **Plain substring filter** against `${title} ${meta}` lowercased — no fuzzy ranking. Keeps the implementation tiny, predictable, and ordering-stable.
+- **Keyboard**: `↑/↓` navigate, `Enter` activate, `Esc` close, click anywhere on the backdrop to dismiss. Active item scrolls into view on each move.
+- **About-modal shortcut list** gets a new "Global" section that documents Ctrl+K alongside the app-specific shortcuts.
+
 ## [0.4.12] — 2026-05-17 — "named ranges"
 
 byteSheet formulas can now use friendly names instead of raw cell refs.
