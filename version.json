@@ -1,6 +1,6 @@
 {
-  "version": "0.4.13",
+  "version": "0.4.14",
   "date": "2026-05-17",
-  "build": "command-palette",
+  "build": "cell-notes",
   "apps": ["byteDoc", "byteSheet"]
 }

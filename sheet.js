@@ -280,6 +280,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="merge"      title="Merge cells">⊟</button>
         <button class="btn-icon" data-action="unmerge"    title="Unmerge">⊞</button>
         <button class="btn-icon" data-action="names"      title="Named ranges">Nm</button>
+        <button class="btn-icon" data-action="note"       title="Add / edit note">💬</button>
         <div class="btn-divider"></div>
         <button class="btn-icon" data-action="insert-chart" title="Insert chart">📊</button>
         <button class="btn-icon" data-action="insert-row"   title="Insert row above">+R</button>
@@ -329,6 +330,7 @@ function handleAction(action) {
         case 'merge':        return mergeSelection();
         case 'unmerge':      return unmergeAtActive();
         case 'names':        return showNamesDialog();
+        case 'note':         return editActiveNote();
         case 'insert-chart': return insertChartDialog();
         case 'insert-row':   return insertRowAtActive();
         case 'insert-col':   return insertColAtActive();
@@ -493,6 +495,40 @@ function mergeSelection() {
     toast('Cells merged.');
 }
 
+/* ── Cell notes (comments) ───────────────────────────────────────────────
+ * One free-text annotation per cell, stored as cell.n. Displays as a small
+ * orange triangle in the top-right corner (CSS `::after`) and the browser's
+ * native `title` tooltip on hover — no custom popup, keeps things accessible
+ * and zero-listener. Empty / cleared note removes the field entirely.
+ *
+ * Notes survive both clear-contents (v/f removed) and clear-format (s
+ * removed). To remove the note itself, open the dialog and submit empty. */
+async function editActiveNote() {
+    commitEdit();
+    const ref = state.activeRef;
+    const sh = activeSheet();
+    const current = (sh.cells[ref] && sh.cells[ref].n) || '';
+    const result = await prompt({
+        title: `Note for ${ref}`,
+        label: 'Empty value removes the note.',
+        initial: current,
+        placeholder: 'e.g. "Provisional figure — confirm with finance"'
+    });
+    if (result === null) return; // cancel
+    const text = result.trim();
+    if (text) {
+        sh.cells[ref] = sh.cells[ref] || {};
+        sh.cells[ref].n = text;
+    } else if (sh.cells[ref]) {
+        delete sh.cells[ref].n;
+        if (!sh.cells[ref].v && !sh.cells[ref].f && !sh.cells[ref].s) delete sh.cells[ref];
+    }
+    paintCell(ref);
+    markDirty();
+    commitSnapshot();
+    toast(text ? 'Note saved.' : 'Note removed.');
+}
+
 function unmergeAtActive() {
     commitEdit();
     const sh = activeSheet();
@@ -617,6 +653,16 @@ function paintCell(ref) {
         if (hasError) td.classList.add('has-error');
     } else {
         td.textContent = '';
+    }
+
+    // Cell-note indicator + native hover tooltip. Notes survive
+    // clear-contents and clear-format, so a cell with only a note still
+    // shows the triangle on an otherwise-blank cell.
+    if (cell && cell.n) {
+        td.classList.add('has-note');
+        td.title = cell.n;
+    } else {
+        td.removeAttribute('title');
     }
 
     // Conditional-format rules — applied AFTER the user's cell.s so a
@@ -768,7 +814,9 @@ function bindGridEvents() {
             { label: 'Delete column',      onClick: () => deleteActiveCol() },
             { sep: true },
             { label: 'Merge cells',        onClick: () => mergeSelection() },
-            { label: 'Unmerge cells',      onClick: () => unmergeAtActive() }
+            { label: 'Unmerge cells',      onClick: () => unmergeAtActive() },
+            { sep: true },
+            { label: 'Edit note…',         onClick: () => editActiveNote() }
         ]);
     });
 }
@@ -1656,7 +1704,9 @@ function clearFormat() {
     forEachInSelection(ref => {
         if (sh.cells[ref]) {
             delete sh.cells[ref].s;
-            if (!sh.cells[ref].v && !sh.cells[ref].f) delete sh.cells[ref];
+            // Drop the cell entry only when nothing remains — preserve notes
+            // (n) so clear-format doesn't silently destroy comments.
+            if (!sh.cells[ref].v && !sh.cells[ref].f && !sh.cells[ref].n) delete sh.cells[ref];
             paintCell(ref);
         }
     });
@@ -1671,7 +1721,8 @@ function clearSelection() {
             delete sh.cells[ref].f;
             clearForwardDeps(state.doc.activeSheet, ref);
             state.computed.delete(cellKey(state.doc.activeSheet, ref));
-            if (!sh.cells[ref].s) delete sh.cells[ref];
+            // Excel-like: "Clear contents" preserves both notes and format.
+            if (!sh.cells[ref].s && !sh.cells[ref].n) delete sh.cells[ref];
             paintCell(ref);
             recomputeDependents(state.doc.activeSheet, ref);
         }

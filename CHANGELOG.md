@@ -4,6 +4,26 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.14] — 2026-05-17 — "cell notes"
+
+Add a free-text annotation to any byteSheet cell. Notes survive both
+clear-contents and clear-format, persist in JSON save/load, and don't
+leak into formula values.
+
+### Added
+
+- **Per-cell `n` field** (string) alongside the existing `v` / `f` / `s` fields on the cell object.
+- **Toolbar `💬` button** + right-click "Edit note…" entry. Both open a prompt seeded with the current note; submitting empty removes it.
+- **Triangle indicator** in the top-right corner of any cell that has a note. Crisp pixel borders (border-trick triangle, accent-coloured), `pointer-events: none` so it never blocks selection.
+- **Native `title` attribute** carries the note text, so hover shows the OS-rendered tooltip — accessible, zero JS, works under any zoom or theme.
+
+### Preserved correctly
+
+- **clear-contents** (`Delete` key, "Clear contents" menu) now drops only `v` / `f` — notes and format stay. Matches Excel's semantics.
+- **clear-format** preserves notes and value.
+- **Snapshot / undo** carries notes automatically (cells are deep-cloned).
+- **TSV copy/paste** intentionally drops notes — they wouldn't survive a paste to a real spreadsheet anyway, and the format itself has no place for them.
+
 ## [0.4.13] — 2026-05-17 — "command palette"
 
 `Ctrl+K` from anywhere opens a quick-switcher: type to filter recent

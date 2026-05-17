@@ -146,6 +146,23 @@
 .sheet-grid td.al-l { text-align: left; }
 .sheet-grid td.al-c { text-align: center; }
 .sheet-grid td.al-r { text-align: right; }
+/* Cell note indicator — small orange triangle pinned to the top-right corner.
+ * Uses inset positioning rather than the (broken) old-school border-trick so
+ * we get crisp pixels at any zoom level, and so we can layer cleanly over
+ * conditional-format backgrounds. The native `title` attribute on the cell
+ * supplies the hover tooltip — no JS popup needed. */
+.sheet-grid td.has-note { position: relative; }
+.sheet-grid td.has-note::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 0;
+    height: 0;
+    border-top: 6px solid var(--accent);
+    border-left: 6px solid transparent;
+    pointer-events: none;
+}
 
 /* ── Frozen rows / cols ──────────────────────────────────────────────────
  * Sticky offsets are layered on top of the existing sticky thead (top:0)
