@@ -1,6 +1,6 @@
 {
-  "version": "0.4.11",
+  "version": "0.4.12",
   "date": "2026-05-17",
-  "build": "cell-merge",
+  "build": "named-ranges",
   "apps": ["byteDoc", "byteSheet"]
 }

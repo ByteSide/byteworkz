@@ -209,6 +209,7 @@ function ensureShape(doc) {
         s.merges = s.merges || [];
     });
     doc.activeSheet = Math.min(Math.max(0, doc.activeSheet || 0), doc.sheets.length - 1);
+    doc.names = doc.names || {}; // workbook-wide named ranges → target text
     return doc;
 }
 
@@ -278,6 +279,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="freeze-col" title="Freeze first column">⇉C</button>
         <button class="btn-icon" data-action="merge"      title="Merge cells">⊟</button>
         <button class="btn-icon" data-action="unmerge"    title="Unmerge">⊞</button>
+        <button class="btn-icon" data-action="names"      title="Named ranges">Nm</button>
         <div class="btn-divider"></div>
         <button class="btn-icon" data-action="insert-chart" title="Insert chart">📊</button>
         <button class="btn-icon" data-action="insert-row"   title="Insert row above">+R</button>
@@ -326,6 +328,7 @@ function handleAction(action) {
         case 'freeze-col':   return toggleFreezeCol();
         case 'merge':        return mergeSelection();
         case 'unmerge':      return unmergeAtActive();
+        case 'names':        return showNamesDialog();
         case 'insert-chart': return insertChartDialog();
         case 'insert-row':   return insertRowAtActive();
         case 'insert-col':   return insertColAtActive();
@@ -1471,7 +1474,8 @@ function makeCtx(sheetIdx) {
         },
         sheetIndexByName(name) {
             return state.doc.sheets.findIndex(s => s.name === name);
-        }
+        },
+        names: state.doc.names || {}
     };
 }
 
@@ -2238,6 +2242,106 @@ function switchToSheet(idx) {
 }
 
 /* ---------------- Conditional formatting ---------------- */
+
+/* ---------------- Named ranges ---------------- */
+
+/* Names registry lives on the document (workbook-wide, not per-sheet) and
+ * maps `Name → target`. Targets are restricted to:
+ *   - a single cell ref:          A1, Sheet2!B3
+ *   - a rectangular range ref:    A1:B10, Data!A1:A100
+ *   - a numeric literal:          0.19, 42
+ * The restriction keeps substitution one-pass and side-effect-free — no
+ * arbitrary expressions, no name → name chains, no precedence surprises. */
+
+const NAME_PATTERN     = /^[A-Za-z_][A-Za-z0-9_]{0,30}$/;
+const CELL_REF_PATTERN = /^([A-Za-z][A-Za-z0-9_]*!)?\$?[A-Z]{1,3}\$?\d{1,5}$/;
+const RANGE_PATTERN    = /^([A-Za-z][A-Za-z0-9_]*!)?\$?[A-Z]{1,3}\$?\d{1,5}:\$?[A-Z]{1,3}\$?\d{1,5}$/;
+const NUMBER_PATTERN   = /^-?\d+(\.\d+)?$/;
+const RESERVED_NAMES   = new Set(['TRUE', 'FALSE', 'AND', 'OR', 'NOT']);
+
+function isValidNameTarget(t) {
+    return CELL_REF_PATTERN.test(t) || RANGE_PATTERN.test(t) || NUMBER_PATTERN.test(t);
+}
+
+function isReservedOrShadowsRef(name) {
+    if (RESERVED_NAMES.has(name.toUpperCase())) return true;
+    // A cell-ref-shaped name (e.g. "A1") would collide with literal refs.
+    return /^[A-Z]{1,3}\d+$/i.test(name);
+}
+
+async function showNamesDialog() {
+    commitEdit();
+    state.doc.names = state.doc.names || {};
+    const names = state.doc.names;
+
+    const renderRows = () => {
+        const entries = Object.entries(names).sort((a, b) => a[0].localeCompare(b[0]));
+        if (!entries.length) return '<p class="cf-empty">No names yet — add one above.</p>';
+        return entries.map(([n, t]) => `
+            <div class="cf-rule-row">
+                <span class="cf-rule-preview" style="font-family:var(--mono)">${escapeHtml(n)}</span>
+                <span class="cf-rule-desc">→ ${escapeHtml(t)}</span>
+                <button class="btn-icon cf-rule-delete" data-name="${escapeHtml(n)}" title="Delete name" type="button">✕</button>
+            </div>`).join('');
+    };
+
+    // Default new-name target = current selection or active cell.
+    const b = selectionBounds();
+    const defaultTarget = (b.c1 === b.c2 && b.r1 === b.r2)
+        ? state.activeRef
+        : `${numToCol(b.c1)}${b.r1}:${numToCol(b.c2)}${b.r2}`;
+
+    await showModal({
+        title: 'Named ranges',
+        bodyHTML: `
+            <label>Name</label>
+            <input type="text" id="nm-name" placeholder="MyRange" autocomplete="off" spellcheck="false">
+            <label>Refers to</label>
+            <input type="text" id="nm-target" value="${escapeHtml(defaultTarget)}" placeholder="A1, A1:B10, Sheet2!A1, or 0.19" autocomplete="off" spellcheck="false">
+            <p class="cf-empty" style="margin:6px 0 0;font-size:11px;">Targets must be a single cell ref, range ref, or number — no expressions.</p>
+            <hr class="cf-sep">
+            <label>Defined names (workbook)</label>
+            <div id="nm-list" class="cf-rules-list">${renderRows()}</div>
+        `,
+        actions: [
+            { label: 'Close', kind: 'secondary' },
+            { label: 'Add name', kind: 'primary', onClick: (close) => {
+                const modal = document.querySelector('.modal-host .modal') || document;
+                const nm = modal.querySelector('#nm-name').value.trim();
+                const tg = modal.querySelector('#nm-target').value.trim();
+                if (!nm) { toast('Name required.', { kind: 'error' }); return; }
+                if (!NAME_PATTERN.test(nm)) { toast('Invalid name — use letters, digits, underscore, starting with letter.', { kind: 'error' }); return; }
+                if (isReservedOrShadowsRef(nm)) { toast('Name shadows a function or cell-ref.', { kind: 'error' }); return; }
+                if (!isValidNameTarget(tg)) { toast('Target must be a cell ref, range, or number.', { kind: 'error' }); return; }
+                names[nm] = tg;
+                fullRecompute();
+                paintAllCells();
+                markDirty();
+                commitSnapshot();
+                toast(`Name "${nm}" added.`);
+                close();
+            } }
+        ],
+        onMount: (modal) => {
+            // Single delegated handler on the list — survives innerHTML
+            // re-renders without re-binding.
+            const list = modal.querySelector('#nm-list');
+            list.addEventListener('click', (e) => {
+                const btn = e.target.closest('.cf-rule-delete');
+                if (!btn) return;
+                e.preventDefault();
+                const n = btn.dataset.name;
+                delete names[n];
+                fullRecompute();
+                paintAllCells();
+                markDirty();
+                commitSnapshot();
+                list.innerHTML = renderRows();
+                toast(`Name "${n}" removed.`);
+            });
+        }
+    });
+}
 
 async function showCondFormatDialog() {
     const sh = activeSheet();

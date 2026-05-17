@@ -4,6 +4,24 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.12] — 2026-05-17 — "named ranges"
+
+byteSheet formulas can now use friendly names instead of raw cell refs.
+`=SUM(Total)` reads infinitely better than `=SUM(A1:A50)`.
+
+### Added
+
+- **Workbook-scoped names registry** stored as `doc.names = { Name: target }`. Survives save/load via JSON.
+- **Toolbar button `Nm`** opens a dialog to add / delete defined names. Default new-target is the current selection (so the typical flow is: select a range, click Nm, type a name, hit Add).
+- **Targets restricted** to one of: a single cell ref (`A1`, `Sheet2!B3`), a rectangular range (`A1:B10`), or a numeric literal (`0.19`). No expressions, no name → name chains. This keeps substitution one-pass, side-effect-free, and free of precedence surprises.
+- **Formula substitution** happens at `evaluate()` entry, before tokenize: identifiers in the formula text that match a defined name get replaced with the target text. The substitutor walks the string skipping string literals, function calls (`Foo(` is left alone), sheet-qualified refs (`Foo!A1`), cell-ref-shaped tokens (`A1`), and `TRUE`/`FALSE`.
+- **Validation on input**: name must be `[A-Za-z_][A-Za-z0-9_]{0,30}`, may not shadow a function name (TRUE/FALSE/AND/OR/NOT) or look like a cell ref (`A1`). Targets are pattern-checked against the three allowed shapes. Bad input shows a toast, dialog stays open.
+
+### Caveats (deferred — user edits the name's target manually if needed)
+
+- **Insert/delete row/col does NOT auto-shift named-range targets.** Excel does shift them; we currently leave them as-is. If a user inserts a row at the top of a named range, the name still points to the original rows — a deliberate choice for v0.4.12 to keep the implementation small.
+- **Sheet rename does NOT update qualified targets** like `Sheet2!A1`. Same rationale.
+
 ## [0.4.11] — 2026-05-17 — "cell merge"
 
 byteSheet now supports rectangular cell merges — span a header across

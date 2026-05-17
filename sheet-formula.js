@@ -328,11 +328,70 @@ function toRPN(tokens) {
 
 /* ------------- Evaluator ------------- */
 
+/* Replace named-range identifiers in the formula text with their target
+ * (a single cell ref, range ref, or numeric literal). Names live on the
+ * document and are passed in via `ctx.names` (a plain {name: target} map).
+ *
+ * Lookups skip identifiers that are:
+ *   - inside a string literal
+ *   - followed by `(` — a function call
+ *   - followed by `!` — a sheet qualifier
+ *   - already a cell ref like `A1` / `$BZ$99`
+ *   - the literals TRUE / FALSE
+ *
+ * One-pass — we deliberately do not iterate, so a name cannot resolve to
+ * another name. Names are restricted at the dialog level to literal
+ * cell-refs / ranges / numbers, which keeps this simple and safe.
+ */
+function substituteNames(text, names) {
+    if (!names) return text;
+    const keys = Object.keys(names);
+    if (!keys.length) return text;
+    let out = '';
+    let i = 0;
+    let inStr = false;
+    while (i < text.length) {
+        const c = text[i];
+        if (inStr) {
+            out += c;
+            // Excel-style "" escape inside strings — copy the pair verbatim
+            if (c === '"' && text[i + 1] === '"') { out += text[i + 1]; i += 2; continue; }
+            if (c === '"') inStr = false;
+            i++;
+            continue;
+        }
+        if (c === '"') { inStr = true; out += c; i++; continue; }
+        if (/[A-Za-z_]/.test(c)) {
+            let j = i + 1;
+            while (j < text.length && /[A-Za-z_0-9.]/.test(text[j])) j++;
+            const word = text.slice(i, j);
+            let k = j;
+            while (k < text.length && /\s/.test(text[k])) k++;
+            const next = text[k];
+            const isFn = next === '(';
+            const isSheetRef = next === '!';
+            const isCellRef = /^\$?[A-Z]{1,3}\$?\d+$/.test(word);
+            const isBool = word === 'TRUE' || word === 'FALSE' || word === 'true' || word === 'false';
+            if (!isFn && !isSheetRef && !isCellRef && !isBool && Object.prototype.hasOwnProperty.call(names, word)) {
+                out += names[word];
+            } else {
+                out += word;
+            }
+            i = j;
+            continue;
+        }
+        out += c;
+        i++;
+    }
+    return out;
+}
+
 export function evaluate(formula, ctx) {
     const deps = new Set();
     const rangeDeps = new Set();
     try {
-        const tokens = tokenize(formula);
+        const expanded = ctx && ctx.names ? substituteNames(formula, ctx.names) : formula;
+        const tokens = tokenize(expanded);
         const rpn = toRPN(tokens);
         const stack = [];
         for (const tk of rpn) {
