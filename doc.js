@@ -401,6 +401,7 @@ function toolbarHTML() {
         <button class="btn-icon" data-action="save" title="Download JSON (Ctrl+S)">⤓</button>
         <button class="btn-icon" data-action="open" title="Open file (Ctrl+O)">⤒</button>
         <button class="btn-icon" data-action="export-html" title="Export HTML">↗</button>
+        <button class="btn-icon" data-action="export-md" title="Export Markdown">MD</button>
         <button class="btn-icon" data-action="print" title="Print (Ctrl+P)">⎙</button>
     </div>`;
 }
@@ -448,6 +449,7 @@ function handleAction(action) {
     if (action === 'save') return doDownload();
     if (action === 'open') return doOpen();
     if (action === 'export-html') return doExportHtml();
+    if (action === 'export-md') return doExportMarkdown();
     if (action === 'print') return window.print();
 }
 
@@ -1511,6 +1513,135 @@ ${body}
 
 function safeFilename(s) {
     return (s || 'untitled').replace(/[^\w\-]+/g, '_').slice(0, 60);
+}
+
+/* ── Markdown export ─────────────────────────────────────────────────────
+ * Convert the editor's contenteditable HTML to GitHub-flavored Markdown.
+ * Recursive walk over the DOM tree — element handlers either delegate to
+ * their children (most cases) or wrap them in MD syntax. Block-level
+ * elements emit trailing blank lines; inline elements emit no whitespace
+ * around themselves and let surrounding whitespace from text nodes survive.
+ *
+ * Deliberately conservative: any element we don't recognise gets its
+ * children flattened, dropping the wrapper. That means an exported doc is
+ * always valid Markdown even if the live document picks up wrapper tags
+ * we don't list here.
+ *
+ * Not supported:
+ *   - Nested ordered lists (numbering would need depth tracking)
+ *   - Inline colours / sizes (no MD equivalent; lost on export)
+ *   - <u> underline (no canonical MD; rendered as raw text)
+ */
+function htmlToMarkdown(html) {
+    const sandbox = document.createElement('div');
+    sandbox.innerHTML = cleanHtml(html);
+    const out = walkMd(sandbox, { listDepth: 0, ordered: false, ordIdx: 0 }).trim();
+    return out + '\n';
+}
+
+function walkMd(node, ctx) {
+    if (node.nodeType === Node.TEXT_NODE) {
+        // Inside a code block, raw text passes through verbatim; elsewhere
+        // collapse runs of whitespace to a single space so the document
+        // doesn't carry contenteditable's frequent stray whitespace.
+        const t = node.textContent;
+        return ctx.inCode ? t : t.replace(/\s+/g, ' ');
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+    const tag = node.tagName.toLowerCase();
+    const kids = (subCtx) => Array.from(node.childNodes).map(c => walkMd(c, subCtx || ctx)).join('');
+
+    switch (tag) {
+        case 'h1': return '\n# '   + kids().trim() + '\n\n';
+        case 'h2': return '\n## '  + kids().trim() + '\n\n';
+        case 'h3': return '\n### ' + kids().trim() + '\n\n';
+        case 'h4': return '\n#### ' + kids().trim() + '\n\n';
+        case 'p': case 'div': {
+            const text = kids().trim();
+            return text ? text + '\n\n' : '';
+        }
+        case 'br': return '  \n';
+        case 'hr': return '\n---\n\n';
+        case 'strong': case 'b': return '**' + kids() + '**';
+        case 'em':     case 'i': return '*'  + kids() + '*';
+        case 's': case 'strike': case 'del': return '~~' + kids() + '~~';
+        case 'u': return kids();  // no MD equivalent; drop the wrapper
+        case 'code': {
+            // Inline code (not inside a <pre>) — wrap in single backticks. If
+            // the content contains backticks, escalate to double-backticks.
+            if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre') {
+                return kids({ ...ctx, inCode: true });
+            }
+            const inner = kids({ ...ctx, inCode: true });
+            const fence = inner.includes('`') ? '``' : '`';
+            return fence + inner + fence;
+        }
+        case 'pre': {
+            // Detect language from class="language-xxx" (common across syntax
+            // highlighters and matches the project's own code-block markup).
+            let lang = '';
+            const codeChild = node.querySelector('code');
+            const cls = (codeChild && codeChild.className) || node.className || '';
+            const m = cls.match(/language-([\w-]+)/);
+            if (m) lang = m[1];
+            const body = kids({ ...ctx, inCode: true }).replace(/\n+$/, '');
+            return '\n```' + lang + '\n' + body + '\n```\n\n';
+        }
+        case 'blockquote': {
+            const text = kids().trim();
+            return text.split('\n').map(l => '> ' + l).join('\n') + '\n\n';
+        }
+        case 'a': {
+            const href = node.getAttribute('href') || '';
+            const txt = kids().trim() || href;
+            return href ? `[${txt}](${href})` : txt;
+        }
+        case 'img': {
+            const src = node.getAttribute('src') || '';
+            const alt = (node.getAttribute('alt') || '').replace(/[\[\]]/g, '');
+            return src ? `![${alt}](${src})` : '';
+        }
+        case 'ul': case 'ol': {
+            const ordered = tag === 'ol';
+            const items = Array.from(node.children).filter(c => c.tagName.toLowerCase() === 'li');
+            const lines = items.map((li, idx) => {
+                const marker = ordered ? `${idx + 1}.` : '-';
+                const text = walkMd(li, { ...ctx, listDepth: ctx.listDepth + 1, ordered, ordIdx: idx }).trim();
+                // Indent continuation lines so MD parsers keep the list item
+                // attached. Two spaces is the gentle, widely-supported amount.
+                const indented = text.replace(/\n/g, '\n  ');
+                return `${marker} ${indented}`;
+            });
+            return '\n' + lines.join('\n') + '\n\n';
+        }
+        case 'li': return kids();
+        case 'table': {
+            const rows = Array.from(node.querySelectorAll('tr'));
+            if (!rows.length) return '';
+            const cells = rows.map(tr => Array.from(tr.children).map(c => walkMd(c, ctx).trim().replace(/\|/g, '\\|')));
+            const cols = Math.max(...cells.map(r => r.length));
+            const header = cells[0] || [];
+            // Pad short rows to the max column count so GitHub MD doesn't
+            // mis-align downstream cells.
+            const pad = (row) => { while (row.length < cols) row.push(''); return row; };
+            const headerLine = '| ' + pad([...header]).join(' | ') + ' |';
+            const sepLine    = '| ' + Array(cols).fill('---').join(' | ') + ' |';
+            const bodyLines  = cells.slice(1).map(r => '| ' + pad([...r]).join(' | ') + ' |');
+            return '\n' + [headerLine, sepLine, ...bodyLines].join('\n') + '\n\n';
+        }
+        case 'td': case 'th': return kids();
+        case 'tr': case 'tbody': case 'thead': case 'tfoot': return kids();
+        case 'mark': case 'span': return kids();    // strip wrappers we don't model
+        default: return kids();
+    }
+}
+
+function doExportMarkdown() {
+    const d = active(); if (!d) return;
+    const md = htmlToMarkdown(state.editor.innerHTML);
+    file.download(safeFilename(d.title) + '.md', md, 'text/markdown');
+    toast('Markdown exported.', { kind: 'ok' });
 }
 
 /* ---------------- Global keybindings ---------------- */

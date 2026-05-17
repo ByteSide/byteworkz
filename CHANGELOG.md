@@ -4,6 +4,33 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.15] — 2026-05-17 — "markdown export"
+
+byteDoc now exports to GitHub-flavored Markdown — the format most
+collaboration tools (Obsidian, GitHub READMEs, static site generators)
+consume directly.
+
+### Added
+
+- **Toolbar `MD` button** in byteDoc, next to the existing HTML export. Generates a `.md` file via the same `file.download` path with `text/markdown` MIME.
+- **`htmlToMarkdown(html)` converter** — recursive walk over the editor's contenteditable DOM. Handles:
+  - Headings `<h1>`…`<h4>` → `#`/`##`/`###`/`####`
+  - `<strong>`/`<b>` → `**…**`, `<em>`/`<i>` → `*…*`, `<s>`/`<strike>`/`<del>` → `~~…~~`
+  - Inline `<code>` → backticks (escalates to double backticks if content itself contains a backtick)
+  - `<pre><code class="language-X">` → fenced code blocks with language tag detected from the class
+  - `<a href="X">` → `[text](X)`; `<img src="X" alt="Y">` → `![Y](X)` (including data-URLs — long but valid)
+  - `<blockquote>` → `> ` prefix on every line
+  - `<ul>` / `<ol>` → `-` / `1.` markers with two-space continuation indent
+  - `<table>` → GitHub MD table syntax, padded to the widest row, pipe-escaped cell content
+  - `<hr>` → `---`, `<br>` → trailing two-space line break
+
+### Out of scope
+
+- **Underline** has no canonical MD; we drop the `<u>` wrapper and keep the text.
+- **Inline colours / font-sizes** are lost (no MD primitive).
+- **Nested ordered lists** flatten to a single level (numbering would need depth tracking).
+- **Round-trip fidelity** — exported `.md` is for reading and downstream use, not for re-importing back into byteDoc (which keeps using its native JSON format for storage).
+
 ## [0.4.14] — 2026-05-17 — "cell notes"
 
 Add a free-text annotation to any byteSheet cell. Notes survive both

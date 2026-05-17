@@ -1,6 +1,6 @@
 {
-  "version": "0.4.14",
+  "version": "0.4.15",
   "date": "2026-05-17",
-  "build": "cell-notes",
+  "build": "markdown-export",
   "apps": ["byteDoc", "byteSheet"]
 }
