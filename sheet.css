@@ -173,28 +173,40 @@
  *   normal td (none), frozen row/col cell (2), frozen-col header (3),
  *   frozen-row head (3), frozen corner / header-corner (4), sheet-corner (5).
  * Background re-applied so content scrolling under doesn't bleed through. */
+/* Background is gated via :not() against the transient state classes
+ * (in-range / sel / has-error / fill-preview) so frozen cells still pick
+ * up the orange selection tint, the red error tint, and the fill-preview
+ * highlight — they only fall back to --bg when no transient state applies.
+ * Without these guards the frozen rule's later position in the cascade
+ * would silently win over the state rules above. */
 .sheet-grid td.is-frozen-row-cell {
     position: sticky;
     top: 24px;
     z-index: 2;
-    background: var(--bg);
     border-bottom-color: var(--border-strong);
+}
+.sheet-grid td.is-frozen-row-cell:not(.in-range):not(.has-error):not(.fill-preview) {
+    background: var(--bg);
 }
 .sheet-grid td.is-frozen-col-cell {
     position: sticky;
     left: 36px;
     z-index: 2;
-    background: var(--bg);
     border-right-color: var(--border-strong);
+}
+.sheet-grid td.is-frozen-col-cell:not(.in-range):not(.has-error):not(.fill-preview) {
+    background: var(--bg);
 }
 .sheet-grid td.is-frozen-corner {
     position: sticky;
     top: 24px;
     left: 36px;
     z-index: 4;
-    background: var(--bg);
     border-right-color: var(--border-strong);
     border-bottom-color: var(--border-strong);
+}
+.sheet-grid td.is-frozen-corner:not(.in-range):not(.has-error):not(.fill-preview) {
+    background: var(--bg);
 }
 .sheet-grid tbody th.row-head.is-frozen-row-head {
     top: 24px;

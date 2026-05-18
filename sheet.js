@@ -92,7 +92,9 @@ function newDoc() {
         title: 'Untitled Sheet',
         createdAt: nowIso(), updatedAt: nowIso(),
         activeSheet: 0,
-        sheets: [newSheet('Sheet1')]
+        sheets: [newSheet('Sheet1')],
+        names: {},
+        tags: []
     };
 }
 function newSheet(name) {
@@ -1882,6 +1884,26 @@ function renameSheet(idx, newName) {
             });
         });
     });
+    // Update named-range targets that reference the renamed sheet. Without
+    // this, a name like `Total → Sheet1!A1:A10` keeps pointing at the
+    // deceased "Sheet1" name and substitutes to "#REF!" on every formula
+    // that uses it. Mirrors what we already do for cell formulas above —
+    // the names registry is just one more place where the old sheet name
+    // lives, so it should be rewritten in the same transaction.
+    if (state.doc.names) {
+        const oldPrefix = old + '!';
+        const newPrefix = newName + '!';
+        // Cheap string-prefix replacement: targets are restricted by the
+        // Named-Ranges dialog to a single cell ref, range ref, or number
+        // literal — bare numeric targets won't contain `!`, so no false
+        // positives. Sheet-qualified targets begin with `<SheetName>!`.
+        for (const k of Object.keys(state.doc.names)) {
+            const t = state.doc.names[k];
+            if (typeof t === 'string' && t.startsWith(oldPrefix)) {
+                state.doc.names[k] = newPrefix + t.slice(oldPrefix.length);
+            }
+        }
+    }
     fullRecompute();
     renderSheetTabs();
     markDirty();

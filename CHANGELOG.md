@@ -4,6 +4,27 @@ All notable changes to **byteworkz** will be documented in this file. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.20] — 2026-05-18 — "audit pass 15"
+
+Fourth audit round. Different lens (CSS cascade order, mutation
+propagation across data layers, UI state invariants).
+
+### WICHTIG
+
+- **Frozen-pane cells silently swallowed `in-range` / `has-error` / `fill-preview` highlights** — the frozen-row/col/corner CSS rules set `background: var(--bg)` and came AFTER the state-tinting rules in the cascade, so a selected cell in a frozen row showed flat `--bg` instead of the orange selection tint, and a frozen cell with a formula error never showed the red error tint. **Fixed** by gating the frozen `background` declaration behind `:not(.in-range):not(.has-error):not(.fill-preview)` so the transient state tints win.
+- **Sheet rename didn't rewrite named-range targets** — formulas got the new sheet name everywhere via `rewriteFormula`, but `doc.names = { Total: 'Sheet1!A1:A10' }` kept the deceased "Sheet1" prefix. Every formula using `Total` then substituted to `Sheet1!A1:A10` → `#REF!` (sheet not found). Documented as deferred in v0.4.12; now actually fixed in `renameSheet` with the same one-pass prefix rewrite used for chart ranges.
+
+### MINOR
+
+- **`newDoc()` in byteSheet didn't initialise `names`/`tags` fields** — they got patched in by `ensureShape` on next load, but the initial in-memory + first-save shape was missing them. Inconsistent; fixed by including in the `newDoc` literal.
+- **byteDoc `editDocTags` left `d.dirty = true` after a successful save** — the tab title's "unsaved" dot stayed visible even though `persistDoc` had already flushed to localStorage. Tag mutations are atomic + immediate, so the dirty flag was always misleading. Removed the `d.dirty = true` line.
+
+### Investigated and accepted
+
+- **Code-block language detection on MD export is effectively dead code** — `doInsertCodeBlock` never sets `class="language-xxx"` on the inserted `<code>`, and the paste sanitizer strips `class` from `<pre>`/`<code>` anyway. The detection in `htmlToMarkdown` is harmless but no real workflow today produces a fenced code block with a language tag. Left as-is (allowing `class` on `pre`/`code` is a sanitization decision better made deliberately).
+- **`deleteSheet` doesn't clean up `doc.names` targets pointing at the deleted sheet** — produces a `#REF!` on any formula using such a name (because the sheet name no longer resolves). Behaviour is at least loud (visible #REF!) rather than silent, so acceptable for now. Stale names remain in the registry until the user manually deletes them via the Names dialog.
+- **Tarjan SCC + 30-pass fixed-point** — re-verified bounds vs `MAX_ROWS=1000` cap. No actual user-reachable overflow.
+
 ## [0.4.19] — 2026-05-17 — "audit pass 14"
 
 Third audit round (memory leaks + defense-in-depth on attribute

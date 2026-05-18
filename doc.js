@@ -1669,7 +1669,12 @@ async function editDocTags() {
     const d = active(); if (!d) return;
     if (!Array.isArray(d.tags)) d.tags = [];
     await tagEditorDialog(d, () => {
-        d.dirty = true;
+        // Each chip add/remove writes immediately rather than going through
+        // the debounced save — tag edits are infrequent and the user expects
+        // the Hub tag filter to reflect the change as soon as they close the
+        // dialog. We DON'T set d.dirty=true because that would leave the tab
+        // title's "unsaved" dot showing despite the write succeeding;
+        // persistDoc has already flushed the latest doc to localStorage.
         d.updatedAt = nowIso();
         persistDoc(d);
     });

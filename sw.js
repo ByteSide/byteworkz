@@ -24,7 +24,7 @@
  * this; old caches are cleaned in `activate`.
  */
 
-const VERSION = '0.4.19';
+const VERSION = '0.4.20';
 const SHELL_CACHE = `byteworkz-shell-v${VERSION}`;
 
 const SHELL_FILES = [
